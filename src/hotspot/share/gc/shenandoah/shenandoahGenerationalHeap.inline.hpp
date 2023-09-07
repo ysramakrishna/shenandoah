@@ -22,8 +22,16 @@
  *  
  */ 
     
-#include "gc/shenandoah/mode/shenandoahMode.hpp"
+#ifndef SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALHEAP_INLINE_HPP
+#define SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALHEAP_INLINE_HPP
+
 #include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
+
+#include "gc/shenandoah/mode/shenandoahMode.hpp"
+
+inline ShenandoahGenerationalHeap* ShenandoahGenerationalHeap::gen_heap() {
+  return named_heap<ShenandoahGenerationalHeap>(CollectedHeap::Shenandoah);
+}
 
 inline bool ShenandoahGenerationalHeap::is_in_active_generation(oop obj) const {
   if (!mode()->is_generational()) {
@@ -71,3 +79,4 @@ inline bool ShenandoahGenerationalHeap::is_old(oop obj) const {
   return is_gc_generation_young() && is_in_old(obj);
 }
 
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALHEAP_INLINE_HPP

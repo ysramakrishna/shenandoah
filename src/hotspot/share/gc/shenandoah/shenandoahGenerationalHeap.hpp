@@ -29,9 +29,8 @@
 
 #include "gc/shenandoah/shenandoahHeap.hpp"
 
-
 // Forward declarations
-// class ShenandoahCollectorPolicy;
+class ShenandoahHeap;
 
 // ShenandoahGenerationalHeap is a ShenandoahHeap with two generations, a younger
 // generation in which objects are allocated and an older generation into which
@@ -58,9 +57,7 @@ class ShenandoahGenerationalHeap : public ShenandoahHeap {
 // ---------- Initialization, termination, identification, printing routines
 //
 public:
-  static inline ShenandoahGenerationalHeap* heap() {
-    return named_heap<ShenandoahGenerationalHeap>(CollectedHeap::Shenandoah);
-  }
+  static inline ShenandoahGenerationalHeap* gen_heap();
 
   const char* name()          const override { return "Shenandoah Generational"; }
   ShenandoahGenerationalHeap::Name kind() const override { return CollectedHeap::ShenandoahGenerational; }
@@ -104,4 +101,4 @@ private:
   void assert_no_in_place_promotions() PRODUCT_RETURN;
 };
 
-#endif // SHARE_GC_SHENANDOAH_SHENANDOAHHEAP_HPP
+#endif // SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALHEAP_HPP

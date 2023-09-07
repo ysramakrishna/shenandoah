@@ -31,6 +31,7 @@
 #include "gc/shared/collectorCounters.hpp"
 #include "gc/shenandoah/shenandoahCardStats.hpp"
 #include "gc/shenandoah/shenandoahCardTable.hpp"
+#include "gc/shenandoah/shenandoahGenerationalHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahHeap.hpp"
 #include "gc/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc/shenandoah/shenandoahScanRemembered.hpp"
@@ -1020,7 +1021,7 @@ inline void ShenandoahVerifyNoYoungRefsClosure::work(T* p) {
   T o = RawAccess<>::oop_load(p);
   if (!CompressedOops::is_null(o)) {
     oop obj = CompressedOops::decode_not_null(o);
-    assert(!_heap->is_in_young(obj), "Found a young ref");
+    assert(!_gen_heap->is_in_young(obj), "Found a young ref");
   }
 }
 

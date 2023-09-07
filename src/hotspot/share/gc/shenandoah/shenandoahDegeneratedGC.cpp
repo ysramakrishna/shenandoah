@@ -378,7 +378,7 @@ void ShenandoahDegenGC::op_prepare_evacuation() {
   heap->parallel_cleaning(false /*full gc*/);
 
   // Prepare regions and collection set
-  _generation->prepare_regions_and_collection_set(false /*concurrent*/);
+  heap->prepare_regions_and_collection_set(false /*concurrent*/, _generation);
 
   // Retire the TLABs, which will force threads to reacquire their TLABs after the pause.
   // This is needed for two reasons. Strong one: new allocations would be with new freeset,

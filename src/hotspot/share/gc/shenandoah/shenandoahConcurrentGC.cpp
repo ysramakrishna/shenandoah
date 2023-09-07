@@ -737,7 +737,7 @@ void ShenandoahConcurrentGC::op_final_mark() {
     // are negligible negative impacts from delaying completion of old-gen evacuation) and when young-gen collections
     // are "under duress" (as signalled by very low availability of memory within young-gen, indicating that/ young-gen
     // collections are not triggering frequently enough).
-    _generation->prepare_regions_and_collection_set(true /*concurrent*/);
+    heap->prepare_regions_and_collection_set(true /*concurrent*/, _generation);
 
     // Upon return from prepare_regions_and_collection_set(), certain parameters have been established to govern the
     // evacuation efforts that are about to begin.  In particular:

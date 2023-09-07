@@ -158,9 +158,6 @@ private:
   // Called before init mark, expected to prepare regions for marking.
   virtual void prepare_gc();
 
-  // Called during final mark, chooses collection set, rebuilds free set.
-  virtual void prepare_regions_and_collection_set(bool concurrent);
-
   // Cancel marking (used by Full collect and when cancelling cycle).
   virtual void cancel_marking();
 

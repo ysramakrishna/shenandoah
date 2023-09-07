@@ -533,6 +533,8 @@ public:
 
 private:
   // GC support
+  virtual void prepare_regions_and_collection_set(bool concurrent, ShenandoahGeneration* generation);
+
   // Evacuation
   void evacuate_collection_set(bool concurrent);
   // Concurrent root processing

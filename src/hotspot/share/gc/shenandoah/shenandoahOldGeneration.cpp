@@ -310,45 +310,6 @@ bool ShenandoahOldGeneration::contains(oop obj) const {
   return ShenandoahHeap::heap()->is_in_old(obj);
 }
 
-void ShenandoahOldGeneration::prepare_regions_and_collection_set(bool concurrent) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  assert(!heap->is_full_gc_in_progress(), "Only for concurrent and degenerated GC");
-
-  {
-    ShenandoahGCPhase phase(concurrent ?
-        ShenandoahPhaseTimings::final_update_region_states :
-        ShenandoahPhaseTimings::degen_gc_final_update_region_states);
-    ShenandoahFinalMarkUpdateRegionStateClosure cl(complete_marking_context());
-
-    parallel_heap_region_iterate(&cl);
-    heap->assert_pinned_region_status();
-  }
-
-  {
-    // This doesn't actually choose a collection set, but prepares a list of
-    // regions as 'candidates' for inclusion in a mixed collection.
-    ShenandoahGCPhase phase(concurrent ?
-        ShenandoahPhaseTimings::choose_cset :
-        ShenandoahPhaseTimings::degen_gc_choose_cset);
-    ShenandoahHeapLocker locker(heap->lock());
-    _old_heuristics->prepare_for_old_collections();
-  }
-
-  {
-    // Though we did not choose a collection set above, we still may have
-    // freed up immediate garbage regions so proceed with rebuilding the free set.
-    ShenandoahGCPhase phase(concurrent ?
-        ShenandoahPhaseTimings::final_rebuild_freeset :
-        ShenandoahPhaseTimings::degen_gc_final_rebuild_freeset);
-    ShenandoahHeapLocker locker(heap->lock());
-    size_t cset_young_regions, cset_old_regions;
-    heap->free_set()->prepare_to_rebuild(cset_young_regions, cset_old_regions);
-    // This is just old-gen completion.  No future budgeting required here.  The only reason to rebuild the freeset here
-    // is in case there was any immediate old garbage identified.
-    heap->free_set()->rebuild(cset_young_regions, cset_old_regions);
-  }
-}
-
 const char* ShenandoahOldGeneration::state_name(State state) {
   switch (state) {
     case IDLE:              return "Idle";

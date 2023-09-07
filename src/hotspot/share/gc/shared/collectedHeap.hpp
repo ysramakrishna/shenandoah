@@ -89,6 +89,7 @@ public:
 //   G1CollectedHeap
 //   ParallelScavengeHeap
 //   ShenandoahHeap
+//     ShenandoahGenerationalHeap
 //   ZCollectedHeap
 //
 class CollectedHeap : public CHeapObj<mtGC> {
@@ -191,7 +192,8 @@ class CollectedHeap : public CHeapObj<mtGC> {
     G1,
     Epsilon,
     Z,
-    Shenandoah
+    Shenandoah,
+    ShenandoahGenerational
   };
 
  protected:

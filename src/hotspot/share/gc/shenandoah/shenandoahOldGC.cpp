@@ -47,7 +47,7 @@ ShenandoahOldGC::ShenandoahOldGC(ShenandoahGeneration* generation, ShenandoahSha
 // override the implementation.
 void ShenandoahOldGC::op_final_mark() {
 
-  ShenandoahHeap* const heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* const heap = ShenandoahGenerationalHeap::heap();
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should be at safepoint");
   assert(!heap->has_forwarded_objects(), "No forwarded objects on this path");
 
@@ -67,16 +67,16 @@ void ShenandoahOldGC::op_final_mark() {
     // We need to do this because weak root cleaning reports the number of dead handles
     JvmtiTagMap::set_needs_cleaning();
 
-    _generation->prepare_regions_and_collection_set(true);
+    heap->prepare_regions_and_collection_set_for_old(true /* concurrent */, _generation);
 
     heap->set_unload_classes(false);
     heap->prepare_concurrent_roots();
 
     // Believe verification following old-gen concurrent mark needs to be different than verification following
     // young-gen concurrent mark, so am commenting this out for now:
-    //   if (ShenandoahVerify) {
-    //     heap->verifier()->verify_after_concmark();
-    //   }
+    if (ShenandoahVerify) {
+      heap->verifier()->verify_after_old_concmark();
+    }
 
     if (VerifyAfterGC) {
       Universe::verify();

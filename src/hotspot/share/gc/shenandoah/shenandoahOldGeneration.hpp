@@ -58,7 +58,6 @@ public:
   bool is_concurrent_mark_in_progress() override;
 
   virtual void prepare_gc() override;
-  void prepare_regions_and_collection_set(bool concurrent) override;
   virtual void record_success_concurrent(bool abbreviated) override;
   virtual void cancel_marking() override;
 

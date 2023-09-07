@@ -2400,6 +2400,51 @@ void ShenandoahHeap::recycle_trash() {
   free_set()->recycle_trash();
 }
 
+// Version for non-generational heap
+void ShenandoahHeap::prepare_regions_and_collection_set(bool concurrent, ShenandoahGeneration* generation) {
+  bool is_generational = mode()->is_generational();
+  assert(!is_generational, "Error");
+
+  assert(!is_full_gc_in_progress(), "Only for concurrent and degenerated GC");
+  assert(!is_old(), "Only YOUNG and GLOBAL GC perform evacuations");
+
+  {
+    ShenandoahGCPhase phase(concurrent ? ShenandoahPhaseTimings::final_update_region_states :
+                            ShenandoahPhaseTimings::degen_gc_final_update_region_states);
+    ShenandoahFinalMarkUpdateRegionStateClosure cl(complete_marking_context());
+    generation->parallel_heap_region_iterate(&cl);
+
+    assert(!is_young(), "Error");
+  }
+
+  {
+    ShenandoahGCPhase phase(concurrent ? ShenandoahPhaseTimings::choose_cset :
+                            ShenandoahPhaseTimings::degen_gc_choose_cset);
+
+    ShenandoahCollectionSet* collection_set = collection_set();
+
+    collection_set->clear();
+    ShenandoahHeapLocker locker(lock());
+    _heuristics->choose_collection_set(collection_set);
+  }
+
+  // Freeset construction uses reserve quantities if they are valid
+  set_evacuation_reserve_quantities(true);
+  {
+    // Is this also needed in non-generational mode?
+
+    ShenandoahGCPhase phase(concurrent ? ShenandoahPhaseTimings::final_rebuild_freeset :
+                            ShenandoahPhaseTimings::degen_gc_final_rebuild_freeset);
+    ShenandoahHeapLocker locker(lock());
+    size_t young_cset_regions, old_cset_regions;
+
+    // We are preparing for evacuation.  At this time, we ignore cset region tallies.
+    free_set()->prepare_to_rebuild(young_cset_regions, old_cset_regions);
+    free_set()->rebuild(young_cset_regions, old_cset_regions);
+  }
+  set_evacuation_reserve_quantities(false);
+}
+
 void ShenandoahHeap::do_class_unloading() {
   _unloader.unload();
 }

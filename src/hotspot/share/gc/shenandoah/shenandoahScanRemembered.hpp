@@ -178,6 +178,7 @@
 #include "gc/shared/workerThread.hpp"
 #include "gc/shenandoah/shenandoahCardStats.hpp"
 #include "gc/shenandoah/shenandoahCardTable.hpp"
+#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 #include "gc/shenandoah/shenandoahNumberSeq.hpp"
 #include "gc/shenandoah/shenandoahTaskqueue.hpp"
 #include "memory/iterator.hpp"
@@ -1069,7 +1070,7 @@ class ShenandoahScanRememberedTask : public WorkerTask {
 
 // Verify that the oop doesn't point into the young generation
 class ShenandoahVerifyNoYoungRefsClosure: public BasicOopIterateClosure {
-  ShenandoahHeap* _heap;
+  ShenandoahGenerationalHeap* _gen_heap;
   template<class T> void work(T* p);
 
  public:

@@ -31,6 +31,7 @@
 #include "gc/shenandoah/shenandoahDegeneratedGC.hpp"
 #include "gc/shenandoah/shenandoahFullGC.hpp"
 #include "gc/shenandoah/shenandoahGeneration.hpp"
+#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahMetrics.hpp"
 #include "gc/shenandoah/shenandoahMonitoringSupport.hpp"
@@ -284,21 +285,22 @@ void ShenandoahDegenGC::op_degenerated() {
       op_cleanup_complete();
       // We defer generation resizing actions until after cset regions have been recycled.
       if (heap->mode()->is_generational()) {
-        size_t old_region_surplus = heap->get_old_region_surplus();
-        size_t old_region_deficit = heap->get_old_region_deficit();
+        ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
+        size_t old_region_surplus = gen_heap->get_old_region_surplus();
+        size_t old_region_deficit = gen_heap->get_old_region_deficit();
         bool success;
         size_t region_xfer;
         const char* region_destination;
         if (old_region_surplus) {
           region_xfer = old_region_surplus;
           region_destination = "young";
-          success = heap->generation_sizer()->transfer_to_young(old_region_surplus);
+          success = gen_heap->generation_sizer()->transfer_to_young(old_region_surplus);
         } else if (old_region_deficit) {
           region_xfer = old_region_surplus;
           region_destination = "old";
-          success = heap->generation_sizer()->transfer_to_old(old_region_deficit);
+          success = gen_heap->generation_sizer()->transfer_to_old(old_region_deficit);
           if (!success) {
-            heap->old_heuristics()->trigger_cannot_expand();
+            gen_heap->old_heuristics()->trigger_cannot_expand();
           }
         } else {
           region_destination = "none";
@@ -306,16 +308,16 @@ void ShenandoahDegenGC::op_degenerated() {
           success = true;
         }
 
-        size_t young_available = heap->young_generation()->available();
-        size_t old_available = heap->old_generation()->available();
+        size_t young_available = gen_heap->young_generation()->available();
+        size_t old_available = gen_heap->old_generation()->available();
         log_info(gc, ergo)("After cleanup, %s " SIZE_FORMAT " regions to %s to prepare for next gc, old available: "
                            SIZE_FORMAT "%s, young_available: " SIZE_FORMAT "%s",
                            success? "successfully transferred": "failed to transfer", region_xfer, region_destination,
                            byte_size_in_proper_unit(old_available), proper_unit_for_byte_size(old_available),
                            byte_size_in_proper_unit(young_available), proper_unit_for_byte_size(young_available));
 
-        heap->set_old_region_surplus(0);
-        heap->set_old_region_deficit(0);
+        gen_heap->set_old_region_surplus(0);
+        gen_heap->set_old_region_deficit(0);
       }
       break;
     default:
@@ -323,12 +325,13 @@ void ShenandoahDegenGC::op_degenerated() {
   }
 
   if (heap->mode()->is_generational()) {
+    ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
     // In case degeneration interrupted concurrent evacuation or update references, we need to clean up transient state.
     // Otherwise, these actions have no effect.
-    heap->set_young_evac_reserve(0);
-    heap->set_old_evac_reserve(0);
-    heap->reset_old_evac_expended();
-    heap->set_promoted_reserve(0);
+    gen_heap->set_young_evac_reserve(0);
+    gen_heap->set_old_evac_reserve(0);
+    gen_heap->reset_old_evac_expended();
+    gen_heap->set_promoted_reserve(0);
   }
 
   if (ShenandoahVerify) {

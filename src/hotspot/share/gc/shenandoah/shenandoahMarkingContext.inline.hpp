@@ -26,6 +26,7 @@
 #ifndef SHARE_GC_SHENANDOAH_SHENANDOAHMARKINGCONTEXT_INLINE_HPP
 #define SHARE_GC_SHENANDOAH_SHENANDOAHMARKINGCONTEXT_INLINE_HPP
 
+#include "gc/shenandoah/shenandoahGenerationalHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahMarkingContext.hpp"
 #include "gc/shenandoah/shenandoahMarkBitMap.inline.hpp"
 #include "logging/log.hpp"
@@ -51,11 +52,11 @@ inline bool ShenandoahMarkingContext::is_marked_weak(const oop obj) const {
 }
 
 inline bool ShenandoahMarkingContext::is_marked_or_old(const oop obj) const {
-  return is_marked(obj) || ShenandoahHeap::heap()->is_old(obj);
+  return is_marked(obj) || ShenandoahGenerationalHeap::heap()->is_old(obj);
 }
 
 inline bool ShenandoahMarkingContext::is_marked_strong_or_old(const oop obj) const {
-  return is_marked_strong(obj) || ShenandoahHeap::heap()->is_old(obj);
+  return is_marked_strong(obj) || ShenandoahGenerationalHeap::heap()->is_old(obj);
 }
 
 inline HeapWord* ShenandoahMarkingContext::get_next_marked_addr(const HeapWord* start, const HeapWord* limit) const {

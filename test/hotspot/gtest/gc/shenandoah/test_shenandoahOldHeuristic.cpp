@@ -23,9 +23,10 @@
 
 #include "precompiled.hpp"
 #include "unittest.hpp"
+#include "gc/shenandoah/shenandoahGeneration.hpp"
+#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahHeapRegion.hpp"
-#include "gc/shenandoah/shenandoahGeneration.hpp"
 #include "gc/shenandoah/shenandoahOldGeneration.hpp"
 #include "gc/shenandoah/heuristics/shenandoahOldHeuristics.hpp"
 #include <cstdarg>
@@ -70,7 +71,7 @@ class ShenandoahResetRegions : public ShenandoahHeapRegionClosure {
 
 class ShenandoahOldHeuristicTest : public ::testing::Test {
  protected:
-  ShenandoahHeap* _heap;
+  ShenandoahGenerationalHeap* _heap;
   ShenandoahOldHeuristics* _heuristics;
   ShenandoahCollectionSet* _collection_set;
 
@@ -79,7 +80,7 @@ class ShenandoahOldHeuristicTest : public ::testing::Test {
       _heuristics(nullptr),
       _collection_set(nullptr) {
     SKIP_IF_NOT_SHENANDOAH();
-    _heap = ShenandoahHeap::heap();
+    _heap = ShenandoahGenerationalHeap::heap();
     _heuristics = _heap->old_heuristics();
     _collection_set = _heap->collection_set();
     ShenandoahHeapLocker locker(_heap->lock());

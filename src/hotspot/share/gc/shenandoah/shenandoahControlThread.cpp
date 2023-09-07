@@ -25,6 +25,10 @@
  */
 
 #include "precompiled.hpp"
+#include "gc/shenandoah/heuristics/shenandoahHeuristics.hpp"
+
+#include "gc/shenandoah/mode/shenandoahMode.hpp"
+
 #include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc/shenandoah/shenandoahConcurrentGC.hpp"
 #include "gc/shenandoah/shenandoahControlThread.hpp"
@@ -33,6 +37,7 @@
 #include "gc/shenandoah/shenandoahFreeSet.hpp"
 #include "gc/shenandoah/shenandoahFullGC.hpp"
 #include "gc/shenandoah/shenandoahGeneration.hpp"
+#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 #include "gc/shenandoah/shenandoahGlobalGeneration.hpp"
 #include "gc/shenandoah/shenandoahYoungGeneration.hpp"
 #include "gc/shenandoah/shenandoahOldGeneration.hpp"
@@ -46,12 +51,12 @@
 #include "gc/shenandoah/shenandoahUtils.hpp"
 #include "gc/shenandoah/shenandoahVMOperations.hpp"
 #include "gc/shenandoah/shenandoahWorkerPolicy.hpp"
-#include "gc/shenandoah/heuristics/shenandoahHeuristics.hpp"
-#include "gc/shenandoah/mode/shenandoahMode.hpp"
+
 #include "memory/iterator.hpp"
 #include "memory/metaspaceUtils.hpp"
 #include "memory/metaspaceStats.hpp"
 #include "memory/universe.hpp"
+
 #include "runtime/atomic.hpp"
 
 ShenandoahControlThread::ShenandoahControlThread() :
@@ -732,8 +737,9 @@ void ShenandoahControlThread::service_concurrent_cycle(ShenandoahHeap* heap,
       // We only record GC results if GC was successful
       ShenandoahMmuTracker* mmu_tracker = heap->mmu_tracker();
       if (generation->is_young()) {
-        if (heap->collection_set()->has_old_regions()) {
-          bool mixed_is_done = (heap->old_heuristics()->unprocessed_old_collection_candidates() == 0);
+        ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
+        if (gen_heap->collection_set()->has_old_regions()) {
+          bool mixed_is_done = (gen_heap->old_heuristics()->unprocessed_old_collection_candidates() == 0);
           mmu_tracker->record_mixed(generation, get_gc_id(), mixed_is_done);
         } else {
           mmu_tracker->record_young(generation, get_gc_id());

@@ -31,6 +31,7 @@
 #include "gc/shenandoah/shenandoahOldGC.hpp"
 #include "gc/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc/shenandoah/shenandoahGeneration.hpp"
+#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 #include "gc/shenandoah/shenandoahOldGeneration.hpp"
 #include "gc/shenandoah/shenandoahYoungGeneration.hpp"
 #include "prims/jvmtiTagMap.hpp"
@@ -67,7 +68,7 @@ void ShenandoahOldGC::op_final_mark() {
     // We need to do this because weak root cleaning reports the number of dead handles
     JvmtiTagMap::set_needs_cleaning();
 
-    heap->prepare_regions_and_collection_set_for_old(true /* concurrent */, _generation);
+    heap->prepare_regions_and_collection_set_old(true /* concurrent */, _generation);
 
     heap->set_unload_classes(false);
     heap->prepare_concurrent_roots();

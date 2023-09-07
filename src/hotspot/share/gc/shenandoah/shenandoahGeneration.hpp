@@ -70,32 +70,6 @@ protected:
   ShenandoahHeuristics* _heuristics;
 
 private:
-  // Compute evacuation budgets prior to choosing collection set.
-  void compute_evacuation_budgets(ShenandoahHeap* heap,
-                                  bool* preselected_regions,
-                                  ShenandoahCollectionSet* collection_set,
-                                  size_t& consumed_by_advance_promotion);
-
-  // Adjust evacuation budgets after choosing collection set.
-  void adjust_evacuation_budgets(ShenandoahHeap* heap,
-                                 ShenandoahCollectionSet* collection_set,
-                                 size_t consumed_by_advance_promotion);
-
-  // Preselect for inclusion into the collection set regions whose age is
-  // at or above tenure age and which contain more than ShenandoahOldGarbageThreshold
-  // amounts of garbage.
-  //
-  // A side effect performed by this function is to tally up the number of regions and
-  // the number of live bytes that we plan to promote-in-place during the current GC cycle.
-  // This information, which is stored with an invocation of heap->set_promotion_in_place_potential(),
-  // feeds into subsequent decisions about when to trigger the next GC and may identify
-  // special work to be done during this GC cycle if we choose to abbreviate it.
-  //
-  // Returns bytes of old-gen memory consumed by selected aged regions
-  size_t select_aged_regions(size_t old_available,
-                             size_t num_regions, bool
-                             candidate_regions_for_promotion_by_copy[]);
-
   size_t available(size_t capacity) const;
 
  public:

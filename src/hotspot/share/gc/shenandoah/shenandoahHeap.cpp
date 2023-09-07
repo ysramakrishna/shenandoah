@@ -36,6 +36,11 @@
 #include "gc/shared/plab.hpp"
 #include "gc/shared/tlab_globals.hpp"
 
+#include "gc/shenandoah/mode/shenandoahGenerationalMode.hpp"
+#include "gc/shenandoah/mode/shenandoahIUMode.hpp"
+#include "gc/shenandoah/mode/shenandoahPassiveMode.hpp"
+#include "gc/shenandoah/mode/shenandoahSATBMode.hpp"
+
 #include "gc/shenandoah/shenandoahAgeCensus.hpp"
 #include "gc/shenandoah/heuristics/shenandoahOldHeuristics.hpp"
 #include "gc/shenandoah/heuristics/shenandoahYoungHeuristics.hpp"
@@ -43,19 +48,19 @@
 #include "gc/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc/shenandoah/shenandoahCardTable.hpp"
 #include "gc/shenandoah/shenandoahClosures.inline.hpp"
+#include "gc/shenandoah/shenandoahCodeRoots.hpp"
 #include "gc/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc/shenandoah/shenandoahConcurrentMark.hpp"
-#include "gc/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "gc/shenandoah/shenandoahControlThread.hpp"
 #include "gc/shenandoah/shenandoahRegulatorThread.hpp"
 #include "gc/shenandoah/shenandoahFreeSet.hpp"
 #include "gc/shenandoah/shenandoahGlobalGeneration.hpp"
-#include "gc/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahHeapRegion.inline.hpp"
 #include "gc/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc/shenandoah/shenandoahInitLogger.hpp"
+#include "gc/shenandoah/shenandoahMarkClosures.hpp"
 #include "gc/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "gc/shenandoah/shenandoahMemoryPool.hpp"
 #include "gc/shenandoah/shenandoahMetrics.hpp"
@@ -65,21 +70,17 @@
 #include "gc/shenandoah/shenandoahPacer.inline.hpp"
 #include "gc/shenandoah/shenandoahPadding.hpp"
 #include "gc/shenandoah/shenandoahParallelCleaning.inline.hpp"
+#include "gc/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc/shenandoah/shenandoahReferenceProcessor.hpp"
 #include "gc/shenandoah/shenandoahRootProcessor.inline.hpp"
 #include "gc/shenandoah/shenandoahScanRemembered.inline.hpp"
 #include "gc/shenandoah/shenandoahSTWMark.hpp"
 #include "gc/shenandoah/shenandoahUtils.hpp"
 #include "gc/shenandoah/shenandoahVerifier.hpp"
-#include "gc/shenandoah/shenandoahCodeRoots.hpp"
 #include "gc/shenandoah/shenandoahVMOperations.hpp"
 #include "gc/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc/shenandoah/shenandoahWorkerPolicy.hpp"
 #include "gc/shenandoah/shenandoahYoungGeneration.hpp"
-#include "gc/shenandoah/mode/shenandoahGenerationalMode.hpp"
-#include "gc/shenandoah/mode/shenandoahIUMode.hpp"
-#include "gc/shenandoah/mode/shenandoahPassiveMode.hpp"
-#include "gc/shenandoah/mode/shenandoahSATBMode.hpp"
 #include "utilities/globalDefinitions.hpp"
 
 #if INCLUDE_JFR
@@ -1518,7 +1519,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(ShenandoahAllocRequest& req
         // The thread allocating b and the thread allocating c can "race" in various ways, resulting in confusion, such as
         // last-start representing object b while first-start represents object c.  This is why we need to require all
         // register_object() invocations to be "mutually exclusive" with respect to each card's memory range.
-        ShenandoahHeap::heap()->card_scan()->register_object(result);
+        card_scan()->register_object(result);
       }
     } else {
       // The allocation failed.  If this was a plab allocation, We've already retired it and no longer have a plab.
@@ -1724,7 +1725,7 @@ private:
   void do_work() {
     ShenandoahConcurrentEvacuateRegionObjectClosure cl(_sh);
     ShenandoahHeapRegion* r;
-    ShenandoahMarkingContext* const ctx = ShenandoahHeap::heap()->marking_context();
+    ShenandoahMarkingContext* const ctx = _sh->marking_context();
     size_t region_size_bytes = ShenandoahHeapRegion::region_size_bytes();
     size_t old_garbage_threshold = (region_size_bytes * ShenandoahOldGarbageThreshold) / 100;
     while ((r = _regions->next()) != nullptr) {
@@ -1775,7 +1776,7 @@ private:
 };
 
 void ShenandoahHeap::evacuate_collection_set(bool concurrent) {
-  if (ShenandoahHeap::heap()->mode()->is_generational()) {
+  if (mode()->is_generational()) {
     ShenandoahRegionIterator regions;
     ShenandoahGenerationalEvacuationTask task(this, &regions, concurrent);
     workers()->run_task(&task);
@@ -2400,32 +2401,30 @@ void ShenandoahHeap::recycle_trash() {
   free_set()->recycle_trash();
 }
 
-// Version for non-generational heap
+// Version for non-generational heap:
+// TODO: check and align with upstream. Will necessitate changes to free set and refactoring
+// out things specific to generations that leaked in there.
 void ShenandoahHeap::prepare_regions_and_collection_set(bool concurrent, ShenandoahGeneration* generation) {
-  bool is_generational = mode()->is_generational();
-  assert(!is_generational, "Error");
+  assert(!mode()->is_generational(), "Error");
 
   assert(!is_full_gc_in_progress(), "Only for concurrent and degenerated GC");
-  assert(!is_old(), "Only YOUNG and GLOBAL GC perform evacuations");
+  assert(!generation->is_old(), "Only YOUNG and GLOBAL GC perform evacuations");
+  assert(!generation->is_young(), "Error");
 
   {
     ShenandoahGCPhase phase(concurrent ? ShenandoahPhaseTimings::final_update_region_states :
                             ShenandoahPhaseTimings::degen_gc_final_update_region_states);
     ShenandoahFinalMarkUpdateRegionStateClosure cl(complete_marking_context());
-    generation->parallel_heap_region_iterate(&cl);
-
-    assert(!is_young(), "Error");
+    parallel_heap_region_iterate(&cl);
   }
 
   {
     ShenandoahGCPhase phase(concurrent ? ShenandoahPhaseTimings::choose_cset :
                             ShenandoahPhaseTimings::degen_gc_choose_cset);
 
-    ShenandoahCollectionSet* collection_set = collection_set();
-
-    collection_set->clear();
+    collection_set()->clear();
     ShenandoahHeapLocker locker(lock());
-    _heuristics->choose_collection_set(collection_set);
+    generation->heuristics()->choose_collection_set(collection_set());
   }
 
   // Freeset construction uses reserve quantities if they are valid

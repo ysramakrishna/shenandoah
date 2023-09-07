@@ -214,6 +214,7 @@ public:
 
   void verify_before_concmark();
   void verify_after_concmark();
+  void verify_after_old_concmark();
   void verify_before_evacuation();
   void verify_during_evacuation();
   void verify_after_evacuation();

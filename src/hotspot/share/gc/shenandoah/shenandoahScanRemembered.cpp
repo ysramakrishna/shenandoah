@@ -317,6 +317,6 @@ void ShenandoahRegionChunkIterator::reset() {
 }
 
 ShenandoahVerifyNoYoungRefsClosure::ShenandoahVerifyNoYoungRefsClosure():
-  _heap(ShenandoahHeap::heap()) {
-  assert(_heap->mode()->is_generational(), "Don't use when non-generational");
+  _gen_heap(ShenandoahGenerationalHeap::heap()) {
+  assert(_gen_heap->mode()->is_generational(), "Don't use when non-generational");
 }

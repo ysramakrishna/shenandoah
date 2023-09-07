@@ -1073,6 +1073,11 @@ void ShenandoahVerifier::verify_after_concmark() {
   );
 }
 
+void ShenandoahVerifier::verify_after_old_concmark() {
+  verify_after_concmark();
+  fatal("Need to implement");
+}
+
 void ShenandoahVerifier::verify_before_evacuation() {
   verify_at_safepoint(
           "Before Evacuation",

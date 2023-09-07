@@ -179,9 +179,6 @@ public:
     _gc_generation = generation;
   }
 
-  ShenandoahOldHeuristics* old_heuristics();
-  ShenandoahYoungHeuristics* young_heuristics();
-
   bool doing_mixed_evacuations();
   bool is_old_bitmap_stable() const;
   bool is_gc_generation_young() const;
@@ -283,8 +280,10 @@ private:
   bool      _heap_region_special;
   size_t    _num_regions;
   ShenandoahHeapRegion** _regions;
-  uint8_t* _affiliations;       // Holds array of enum ShenandoahAffiliation, including FREE status in non-generational mode
   ShenandoahRegionIterator _update_refs_iterator;
+
+protected:
+  uint8_t* _affiliations;       // Holds array of enum ShenandoahAffiliation, including FREE status in non-generational mode
 
 public:
 
@@ -558,9 +557,7 @@ public:
 //
 // Mark support
 private:
-  ShenandoahYoungGeneration* _young_generation;
   ShenandoahGeneration*      _global_generation;
-  ShenandoahOldGeneration*   _old_generation;
 
   ShenandoahControlThread*   _control_thread;
   ShenandoahRegulatorThread* _regulator_thread;
@@ -579,9 +576,7 @@ private:
 
 public:
   ShenandoahControlThread*   control_thread()          { return _control_thread;    }
-  ShenandoahYoungGeneration* young_generation()  const { return _young_generation;  }
   ShenandoahGeneration*      global_generation() const { return _global_generation; }
-  ShenandoahOldGeneration*   old_generation()    const { return _old_generation;    }
   ShenandoahGeneration*      generation_for(ShenandoahAffiliation affiliation) const;
   const ShenandoahGenerationSizer* generation_sizer()  const { return &_generation_sizer;  }
 
@@ -664,11 +659,6 @@ public:
   bool is_maximal_no_gc() const override shenandoah_not_implemented_return(false);
 
   inline bool is_in(const void* p) const override;
-
-  inline bool is_in_active_generation(oop obj) const;
-  inline bool is_in_young(const void* p) const;
-  inline bool is_in_old(const void* p) const;
-  inline bool is_old(oop pobj) const;
 
   inline ShenandoahAffiliation region_affiliation(const ShenandoahHeapRegion* r);
   inline void set_affiliation(ShenandoahHeapRegion* r, ShenandoahAffiliation new_affiliation);

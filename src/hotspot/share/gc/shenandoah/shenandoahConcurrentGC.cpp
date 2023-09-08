@@ -232,19 +232,21 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
     bool success;
     size_t region_xfer;
     const char* region_destination;
-    ShenandoahYoungGeneration* young_gen = heap->young_generation();
-    ShenandoahGeneration* old_gen = heap->old_generation();
-    {
-      ShenandoahHeapLocker locker(heap->lock());
+    ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
 
-      size_t old_region_surplus = heap->get_old_region_surplus();
-      size_t old_region_deficit = heap->get_old_region_deficit();
+    ShenandoahYoungGeneration* young_gen = gen_heap->young_generation();
+    ShenandoahGeneration* old_gen = gen_heap->old_generation();
+    {
+      ShenandoahHeapLocker locker(gen_heap->lock());
+
+      size_t old_region_surplus = gen_heap->get_old_region_surplus();
+      size_t old_region_deficit = gen_heap->get_old_region_deficit();
       if (old_region_surplus) {
-        success = heap->generation_sizer()->transfer_to_young(old_region_surplus);
+        success = gen_heap->generation_sizer()->transfer_to_young(old_region_surplus);
         region_destination = "young";
         region_xfer = old_region_surplus;
       } else if (old_region_deficit) {
-        success = heap->generation_sizer()->transfer_to_old(old_region_deficit);
+        success = gen_heap->generation_sizer()->transfer_to_old(old_region_deficit);
         region_destination = "old";
         region_xfer = old_region_deficit;
         if (!success) {
@@ -255,17 +257,17 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
         region_xfer = 0;
         success = true;
       }
-      heap->set_old_region_surplus(0);
-      heap->set_old_region_deficit(0);
+      gen_heap->set_old_region_surplus(0);
+      gen_heap->set_old_region_deficit(0);
 
-      size_t old_usage_before_evac = heap->capture_old_usage(0);
+      size_t old_usage_before_evac = gen_heap->capture_old_usage(0);
       size_t old_usage_now = old_gen->used();
       size_t promoted_bytes = old_usage_now - old_usage_before_evac;
-      heap->set_previous_promotion(promoted_bytes);
-      heap->set_young_evac_reserve(0);
-      heap->set_old_evac_reserve(0);
-      heap->reset_old_evac_expended();
-      heap->set_promoted_reserve(0);
+      gen_heap->set_previous_promotion(promoted_bytes);
+      gen_heap->set_young_evac_reserve(0);
+      gen_heap->set_old_evac_reserve(0);
+      gen_heap->reset_old_evac_expended();
+      gen_heap->set_promoted_reserve(0);
     }
 
     // Report outside the heap lock

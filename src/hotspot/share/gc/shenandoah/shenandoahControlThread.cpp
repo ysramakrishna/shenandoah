@@ -150,7 +150,7 @@ void ShenandoahControlThread::run_service() {
 
       if (degen_point == ShenandoahGC::_degenerated_outside_cycle) {
         _degen_generation = heap->mode()->is_generational() ?
-                heap->young_generation() : heap->global_generation();
+                ((ShenandoahGenerationalHeap*)heap)->young_generation() : heap->global_generation();
       } else {
         assert(_degen_generation != nullptr, "Need to know which generation to resume");
       }
@@ -494,13 +494,13 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(ShenandoahHeap* he
       // they end up in, but we have to be sure we don't promote into any regions
       // that are in the cset.
       log_info(gc, ergo)("Start GC cycle (YOUNG)");
-      the_generation = heap->young_generation();
+      the_generation = ((ShenandoahGenerationalHeap*)heap)->young_generation();
       service_concurrent_cycle(the_generation, cause, false);
       break;
     }
     case OLD: {
       log_info(gc, ergo)("Start GC cycle (OLD)");
-      the_generation = heap->old_generation();
+      the_generation = ((ShenandoahGenerationalHeap*)heap)->old_generation();
       service_concurrent_old_cycle(heap, cause);
       break;
     }
@@ -521,7 +521,7 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(ShenandoahHeap* he
   }
 }
 
-void ShenandoahControlThread::service_concurrent_old_cycle(ShenandoahHeap* heap, GCCause::Cause &cause) {
+void ShenandoahControlThread::service_concurrent_old_cycle(ShenandoahGenerationalHeap* heap, GCCause::Cause &cause) {
   ShenandoahOldGeneration* old_generation = heap->old_generation();
   ShenandoahYoungGeneration* young_generation = heap->young_generation();
   ShenandoahOldGeneration::State original_state = old_generation->state();

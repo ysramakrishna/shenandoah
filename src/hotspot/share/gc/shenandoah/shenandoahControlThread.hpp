@@ -178,7 +178,7 @@ public:
                                        const ShenandoahGenerationType generation,
                                        GCCause::Cause cause);
 
-  void service_concurrent_old_cycle(ShenandoahHeap* heap,
+  void service_concurrent_old_cycle(ShenandoahGenerationalHeap* heap,
                                     GCCause::Cause &cause);
 
   void set_gc_mode(GCMode new_mode);

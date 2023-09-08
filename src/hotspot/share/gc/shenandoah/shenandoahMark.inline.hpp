@@ -299,7 +299,7 @@ inline void ShenandoahMark::mark_through_ref(T *p, ShenandoahObjToScanQueue* q, 
     oop obj = CompressedOops::decode_not_null(o);
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::heap();
+    ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
     shenandoah_assert_not_forwarded(p, obj);
     shenandoah_assert_not_in_cset_except(p, obj, heap->cancelled_gc());
     if (in_generation<GENERATION>(heap, obj)) {

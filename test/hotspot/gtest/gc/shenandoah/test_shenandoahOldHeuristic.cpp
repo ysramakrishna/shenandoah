@@ -76,7 +76,7 @@ class ShenandoahOldHeuristicTest : public ::testing::Test {
   ShenandoahCollectionSet* _collection_set;
 
   ShenandoahOldHeuristicTest()
-    : _heap(nullptr),
+    : _gen_heap(nullptr),
       _heuristics(nullptr),
       _collection_set(nullptr) {
     SKIP_IF_NOT_SHENANDOAH();

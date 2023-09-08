@@ -118,10 +118,11 @@ inline void ShenandoahMark::count_liveness(ShenandoahLiveData* live_data, oop ob
   if (GENERATION == YOUNG || (GENERATION == GLOBAL_GEN && region->is_young())) {
     assert(heap->mode()->is_generational(), "Only if generational");
     if (ShenandoahGenerationalAdaptiveTenuring && !ShenandoahGenerationalCensusAtEvac) {
+      ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
       assert(region->is_young(), "Only for young objects");
-      uint age = ShenandoahHeap::get_object_age_concurrent(obj);
-      CENSUS_NOISE(heap->age_census()->add(age, region->age(), region->youth(), size, worker_id);)
-      NO_CENSUS_NOISE(heap->age_census()->add(age, region->age(), size, worker_id);)
+      uint age = ShenandoahGenerationalHeap::get_object_age_concurrent(obj);
+      CENSUS_NOISE(gen_heap->age_census()->add(age, region->age(), region->youth(), size, worker_id);)
+      NO_CENSUS_NOISE(gen_heap->age_census()->add(age, region->age(), size, worker_id);)
     }
   }
 
@@ -278,9 +279,9 @@ template<ShenandoahGenerationType GENERATION>
 bool ShenandoahMark::in_generation(ShenandoahHeap* const heap, oop obj) {
   // Each in-line expansion of in_generation() resolves GENERATION at compile time.
   if (GENERATION == YOUNG) {
-    return heap->is_in_young(obj);
+    return ((ShenandoahGenerationalHeap*)heap)->is_in_young(obj);
   } else if (GENERATION == OLD) {
-    return heap->is_in_old(obj);
+    return ((ShenandoahGenerationalHeap*)heap)->is_in_old(obj);
   } else if (GENERATION == GLOBAL_GEN || GENERATION == GLOBAL_NON_GEN) {
     return true;
   } else {
@@ -298,6 +299,7 @@ inline void ShenandoahMark::mark_through_ref(T *p, ShenandoahObjToScanQueue* q, 
     oop obj = CompressedOops::decode_not_null(o);
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
+    ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::heap();
     shenandoah_assert_not_forwarded(p, obj);
     shenandoah_assert_not_in_cset_except(p, obj, heap->cancelled_gc());
     if (in_generation<GENERATION>(heap, obj)) {
@@ -308,12 +310,12 @@ inline void ShenandoahMark::mark_through_ref(T *p, ShenandoahObjToScanQueue* q, 
       // future young-gen collections.  It might be better to reconstruct card table in
       // ShenandoahHeapRegion::global_oop_iterate_and_fill_dead.  We could either mark all live memory as dirty, or could
       // use the GLOBAL update-refs scanning of pointers to determine precisely which cards to flag as dirty.
-      if (GENERATION == YOUNG && heap->is_in_old(p)) {
+      if (GENERATION == YOUNG && gen_heap->is_in_old(p)) {
         // Mark card as dirty because remembered set scanning still finds interesting pointer.
-        heap->mark_card_as_dirty((HeapWord*)p);
-      } else if (GENERATION == GLOBAL_GEN && heap->is_in_old(p) && heap->is_in_young(obj)) {
+        gen_heap->mark_card_as_dirty((HeapWord*)p);
+      } else if (GENERATION == GLOBAL_GEN && gen_heap->is_in_old(p) && gen_heap->is_in_young(obj)) {
         // Mark card as dirty because GLOBAL marking finds interesting pointer.
-        heap->mark_card_as_dirty((HeapWord*)p);
+        gen_heap->mark_card_as_dirty((HeapWord*)p);
       }
     } else if (old_q != nullptr) {
       // Young mark, bootstrapping old_q or concurrent with old_q marking.
@@ -323,9 +325,9 @@ inline void ShenandoahMark::mark_through_ref(T *p, ShenandoahObjToScanQueue* q, 
       // Old mark, found a young pointer.
       // TODO:  Rethink this: may be redundant with dirtying of cards identified during young-gen remembered set scanning
       // and by mutator write barriers.  Assert
-      if (heap->is_in(p)) {
-        assert(heap->is_in_young(obj), "Expected young object.");
-        heap->mark_card_as_dirty(p);
+      if (gen_heap->is_in(p)) {
+        assert(gen_heap->is_in_young(obj), "Expected young object.");
+        gen_heap->mark_card_as_dirty(p);
       }
     }
   }

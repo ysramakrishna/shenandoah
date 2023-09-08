@@ -147,13 +147,13 @@ public:
 
 class ShenandoahSetRememberedCardsToDirtyClosure : public BasicOopIterateClosure {
 protected:
-  ShenandoahHeap*    const _heap;
-  RememberedScanner* const _scanner;
+  ShenandoahGenerationalHeap* const _gen_heap;
+  RememberedScanner*          const _scanner;
 
 public:
   ShenandoahSetRememberedCardsToDirtyClosure() :
-      _heap(ShenandoahHeap::heap()),
-      _scanner(_heap->card_scan()) {}
+      _gen_heap(ShenandoahGenerationalHeap::gen_heap()),
+      _scanner(_gen_heap->card_scan()) {}
 
   template<class T>
   inline void work(T* p);

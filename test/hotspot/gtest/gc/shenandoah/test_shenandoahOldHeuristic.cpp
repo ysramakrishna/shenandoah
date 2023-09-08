@@ -71,7 +71,7 @@ class ShenandoahResetRegions : public ShenandoahHeapRegionClosure {
 
 class ShenandoahOldHeuristicTest : public ::testing::Test {
  protected:
-  ShenandoahGenerationalHeap* _heap;
+  ShenandoahGenerationalHeap* _gen_heap;
   ShenandoahOldHeuristics* _heuristics;
   ShenandoahCollectionSet* _collection_set;
 
@@ -80,24 +80,24 @@ class ShenandoahOldHeuristicTest : public ::testing::Test {
       _heuristics(nullptr),
       _collection_set(nullptr) {
     SKIP_IF_NOT_SHENANDOAH();
-    _heap = ShenandoahGenerationalHeap::heap();
-    _heuristics = _heap->old_heuristics();
-    _collection_set = _heap->collection_set();
-    ShenandoahHeapLocker locker(_heap->lock());
+    _gen_heap = ShenandoahGenerationalHeap::gen_heap();
+    _heuristics = _gen_heap->old_heuristics();
+    _collection_set = _gen_heap->collection_set();
+    ShenandoahHeapLocker locker(_gen_heap->lock());
     ShenandoahResetRegions reset;
-    _heap->heap_region_iterate(&reset);
-    _heap->set_old_evac_reserve(_heap->old_generation()->soft_max_capacity() / 4);
+    _gen_heap->heap_region_iterate(&reset);
+    _gen_heap->set_old_evac_reserve(_gen_heap->old_generation()->soft_max_capacity() / 4);
     _heuristics->abandon_collection_candidates();
     _collection_set->clear();
   }
 
   ShenandoahOldGeneration::State old_generation_state() {
-    return _heap->old_generation()->state();
+    return _gen_heap->old_generation()->state();
   }
 
   size_t make_garbage(size_t region_idx, size_t garbage_bytes) {
-    ShenandoahHeapLocker locker(_heap->lock());
-    ShenandoahHeapRegion* region = _heap->get_region(region_idx);
+    ShenandoahHeapLocker locker(_gen_heap->lock());
+    ShenandoahHeapRegion* region = _gen_heap->get_region(region_idx);
     region->set_affiliation(OLD_GENERATION);
     region->make_regular_allocation(OLD_GENERATION);
     size_t live_bytes = ShenandoahHeapRegion::region_size_bytes() - garbage_bytes;
@@ -107,25 +107,25 @@ class ShenandoahOldHeuristicTest : public ::testing::Test {
   }
 
   size_t create_too_much_garbage_for_one_mixed_evacuation() {
-    size_t garbage_target = _heap->old_generation()->soft_max_capacity() / 2;
+    size_t garbage_target = _gen_heap->old_generation()->soft_max_capacity() / 2;
     size_t garbage_total = 0;
     size_t region_idx = 0;
-    while (garbage_total < garbage_target && region_idx < _heap->num_regions()) {
+    while (garbage_total < garbage_target && region_idx < _gen_heap->num_regions()) {
       garbage_total += make_garbage_above_collection_threshold(region_idx++);
     }
     return garbage_total;
   }
 
   void make_pinned(size_t region_idx) {
-    ShenandoahHeapLocker locker(_heap->lock());
-    ShenandoahHeapRegion* region = _heap->get_region(region_idx);
+    ShenandoahHeapLocker locker(_gen_heap->lock());
+    ShenandoahHeapRegion* region = _gen_heap->get_region(region_idx);
     region->record_pin();
     region->make_pinned();
   }
 
   void make_unpinned(size_t region_idx) {
-    ShenandoahHeapLocker locker(_heap->lock());
-    ShenandoahHeapRegion* region = _heap->get_region(region_idx);
+    ShenandoahHeapLocker locker(_gen_heap->lock());
+    ShenandoahHeapRegion* region = _gen_heap->get_region(region_idx);
     region->record_unpin();
     region->make_unpinned();
   }
@@ -176,7 +176,7 @@ TEST_VM_F(ShenandoahOldHeuristicTest, select_no_old_region_above_threshold) {
   SKIP_IF_NOT_SHENANDOAH();
 
   // In this case, we have zero regions to add to the collection set,
-  // but we will have one region that must still be made parseable.
+  // but we will have one region that must still be made parsable.
   make_garbage_below_collection_threshold(10);
   _heuristics->prepare_for_old_collections();
   EXPECT_EQ(1U, _heuristics->coalesce_and_fill_candidates_count());

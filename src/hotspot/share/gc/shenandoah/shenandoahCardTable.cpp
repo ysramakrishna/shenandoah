@@ -107,7 +107,7 @@ void ShenandoahCardTable::initialize(const ReservedSpace& card_table) {
 }
 
 bool ShenandoahCardTable::is_in_young(const void* obj) const {
-  return ShenandoahHeap::heap()->is_in_young(obj);
+  return ShenandoahGenerationalHeap::gen_heap()->is_in_young(obj);
 }
 
 CardValue* ShenandoahCardTable::read_byte_for(const void* p) {

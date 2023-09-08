@@ -34,10 +34,7 @@ inline ShenandoahGenerationalHeap* ShenandoahGenerationalHeap::gen_heap() {
 }
 
 inline bool ShenandoahGenerationalHeap::is_in_active_generation(oop obj) const {
-  if (!mode()->is_generational()) {
-    // everything is the same single generation
-    return true;
-  }
+  assert(mode()->is_generational(), "Error");
 
   if (active_generation() == nullptr) {
     // no collection is happening, only expect this to be called

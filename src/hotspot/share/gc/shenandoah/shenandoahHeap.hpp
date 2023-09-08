@@ -659,6 +659,7 @@ public:
   bool is_maximal_no_gc() const override shenandoah_not_implemented_return(false);
 
   inline bool is_in(const void* p) const override;
+  inline bool is_in_active_generation(const void* p) const { return true; }
 
   inline ShenandoahAffiliation region_affiliation(const ShenandoahHeapRegion* r);
   inline void set_affiliation(ShenandoahHeapRegion* r, ShenandoahAffiliation new_affiliation);

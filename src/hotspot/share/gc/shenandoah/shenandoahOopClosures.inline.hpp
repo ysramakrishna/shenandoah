@@ -60,7 +60,7 @@ inline void ShenandoahSetRememberedCardsToDirtyClosure::work(T* p) {
   T o = RawAccess<>::oop_load(p);
   if (!CompressedOops::is_null(o)) {
     oop obj = CompressedOops::decode_not_null(o);
-    if (_heap->is_in_young(obj)) {
+    if (_gen_heap->is_in_young(obj)) {
       // Found interesting pointer.  Mark the containing card as dirty.
       _scanner->mark_card_as_dirty((HeapWord*) p);
     }

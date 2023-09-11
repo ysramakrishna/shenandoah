@@ -179,6 +179,8 @@ public:
     _gc_generation = generation;
   }
 
+  // ShenandoahHeuristics* heuristics();
+
   bool doing_mixed_evacuations();
   bool is_old_bitmap_stable() const;
   bool is_gc_generation_young() const;
@@ -195,7 +197,7 @@ public:
   jint initialize() override;
   void post_initialize() override;
   void initialize_heuristics_generations();
-
+  virtual void print_init_logger() const;
   void initialize_serviceability() override;
 
   void print_on(outputStream* st)              const override;

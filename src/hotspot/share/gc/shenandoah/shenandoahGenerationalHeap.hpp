@@ -1,6 +1,4 @@
 /*
- * Copyright (c) 2023, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2013, 2021, Red Hat, Inc. All rights reserved.
  * Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -62,7 +60,12 @@ public:
   const char* name()          const override { return "Shenandoah Generational"; }
   ShenandoahGenerationalHeap::Name kind() const override { return CollectedHeap::ShenandoahGenerational; }
 
+  // explicit ShenandoahGenerationalHeap(ShenandoahCollectorPolicy* policy) : ShenandoahHeap(policy) {}
+  // static ShenandoahGenerationalHeap* heap();
+
   ShenandoahGenerationalHeap(ShenandoahCollectorPolicy* policy);
+
+  void print_init_logger() const override;
 
   ShenandoahYoungGeneration* young_generation()  const { return _young_generation;  }
   ShenandoahOldGeneration*   old_generation()    const { return _old_generation;    }

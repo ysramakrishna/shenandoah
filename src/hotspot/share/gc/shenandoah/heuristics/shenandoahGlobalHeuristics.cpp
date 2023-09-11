@@ -80,15 +80,16 @@ void ShenandoahGlobalHeuristics::choose_global_collection_set(ShenandoahCollecti
                                                               size_t size, size_t actual_free,
                                                               size_t cur_young_garbage) const {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
   size_t region_size_bytes = ShenandoahHeapRegion::region_size_bytes();
-  size_t capacity = heap->young_generation()->max_capacity();
+  size_t capacity = gen_heap->young_generation()->max_capacity();
   size_t garbage_threshold = region_size_bytes * ShenandoahGarbageThreshold / 100;
   size_t ignore_threshold = region_size_bytes * ShenandoahIgnoreGarbageThreshold / 100;
-  const uint tenuring_threshold = heap->age_census()->tenuring_threshold();
+  const uint tenuring_threshold = gen_heap->age_census()->tenuring_threshold();
 
-  size_t max_young_cset = (size_t) (heap->get_young_evac_reserve() / ShenandoahEvacWaste);
+  size_t max_young_cset = (size_t) (gen_heap->get_young_evac_reserve() / ShenandoahEvacWaste);
   size_t young_cur_cset = 0;
-  size_t max_old_cset = (size_t) (heap->get_old_evac_reserve() / ShenandoahOldEvacWaste);
+  size_t max_old_cset = (size_t) (gen_heap->get_old_evac_reserve() / ShenandoahOldEvacWaste);
   size_t old_cur_cset = 0;
 
   // Figure out how many unaffiliated young regions are dedicated to mutator and to evacuator.  Allow the young
@@ -97,7 +98,7 @@ void ShenandoahGlobalHeuristics::choose_global_collection_set(ShenandoahCollecti
   // to young.  Do not transfer the mutator's unaffiliated regions to old-gen.  Those must remain available
   // to the mutator as it needs to be able to consume this memory during concurrent GC.
 
-  size_t unaffiliated_young_regions = heap->young_generation()->free_unaffiliated_regions();
+  size_t unaffiliated_young_regions = gen_heap->young_generation()->free_unaffiliated_regions();
   size_t unaffiliated_young_memory = unaffiliated_young_regions * region_size_bytes;
 
   if (unaffiliated_young_memory > max_young_cset) {
@@ -167,8 +168,8 @@ void ShenandoahGlobalHeuristics::choose_global_collection_set(ShenandoahCollecti
   }
 
   if (regions_transferred_to_old > 0) {
-    heap->generation_sizer()->force_transfer_to_old(regions_transferred_to_old);
-    heap->set_young_evac_reserve(heap->get_young_evac_reserve() - regions_transferred_to_old * region_size_bytes);
-    heap->set_old_evac_reserve(heap->get_old_evac_reserve() + regions_transferred_to_old * region_size_bytes);
+    gen_heap->generation_sizer()->force_transfer_to_old(regions_transferred_to_old);
+    gen_heap->set_young_evac_reserve(gen_heap->get_young_evac_reserve() - regions_transferred_to_old * region_size_bytes);
+    gen_heap->set_old_evac_reserve(gen_heap->get_old_evac_reserve() + regions_transferred_to_old * region_size_bytes);
   }
 }

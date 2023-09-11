@@ -58,11 +58,12 @@ bool ShenandoahDegenGC::collect(GCCause::Cause cause) {
   vmop_degenerated();
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->mode()->is_generational()) {
-    bool is_bootstrap_gc = heap->old_generation()->state() == ShenandoahOldGeneration::BOOTSTRAPPING;
-    heap->mmu_tracker()->record_degenerated(_generation, GCId::current(), is_bootstrap_gc,
-                                            !heap->collection_set()->has_old_regions());
+    ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
+    bool is_bootstrap_gc = gen_heap->old_generation()->state() == ShenandoahOldGeneration::BOOTSTRAPPING;
+    gen_heap->mmu_tracker()->record_degenerated(_generation, GCId::current(), is_bootstrap_gc,
+                                                !gen_heap->collection_set()->has_old_regions());
     const char* msg = is_bootstrap_gc? "At end of Degenerated Bootstrap Old GC": "At end of Degenerated Young GC";
-    heap->log_heap_status(msg);
+    gen_heap->log_heap_status(msg);
   }
   return true;
 }
@@ -90,6 +91,7 @@ void ShenandoahDegenGC::entry_degenerated() {
 
 void ShenandoahDegenGC::op_degenerated() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* const gen_heap = ShenandoahGenerationalHeap::gen_heap();
   // Degenerated GC is STW, but it can also fail. Current mechanics communicates
   // GC failure via cancelled_concgc() flag. So, if we detect the failure after
   // some phase, we have to upgrade the Degenerate GC to Full GC.
@@ -97,8 +99,8 @@ void ShenandoahDegenGC::op_degenerated() {
 
 #ifdef ASSERT
   if (heap->mode()->is_generational()) {
-    ShenandoahOldGeneration* old_generation = heap->old_generation();
-    if (!heap->is_concurrent_old_mark_in_progress()) {
+    ShenandoahOldGeneration* old_generation = gen_heap->old_generation();
+    if (!gen_heap->is_concurrent_old_mark_in_progress()) {
       // If we are not marking the old generation, there should be nothing in the old mark queues
       assert(old_generation->task_queues()->is_empty(), "Old gen task queues should be empty");
     }
@@ -164,7 +166,7 @@ void ShenandoahDegenGC::op_degenerated() {
           // transferred to the old generation mark queues and the young pointers are NOT part
           // of this snapshot, so they must be dropped here. It is safe to drop them here because
           // we will rescan the roots on this safepoint.
-          heap->transfer_old_pointers_from_satb();
+          gen_heap->transfer_old_pointers_from_satb();
         }
       }
 
@@ -325,7 +327,6 @@ void ShenandoahDegenGC::op_degenerated() {
   }
 
   if (heap->mode()->is_generational()) {
-    ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
     // In case degeneration interrupted concurrent evacuation or update references, we need to clean up transient state.
     // Otherwise, these actions have no effect.
     gen_heap->set_young_evac_reserve(0);

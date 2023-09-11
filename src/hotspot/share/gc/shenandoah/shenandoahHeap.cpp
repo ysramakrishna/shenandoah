@@ -550,7 +550,7 @@ void ShenandoahHeap::initialize_heuristics_generations() {
             err_msg("GC mode \"%s\" is experimental, and must be enabled via -XX:+UnlockExperimentalVMOptions.",
                     _gc_mode->name()));
   }
-
+ 
   // Max capacity is the maximum _allowed_ capacity. That is, the maximum allowed capacity
   // for old would be total heap - minimum capacity of young. This means the sum of the maximum
   // allowed for old and young could exceed the total heap size. It remains the case that the

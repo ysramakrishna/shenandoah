@@ -41,9 +41,9 @@ size_t ShenandoahGlobalGeneration::max_capacity() const {
 }
 
 size_t ShenandoahGlobalGeneration::used_regions() const {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  assert(heap->mode()->is_generational(), "Region usage accounting is only for generational mode");
-  return heap->old_generation()->used_regions() + heap->young_generation()->used_regions();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  assert(gen_heap->mode()->is_generational(), "Region usage accounting is only for generational mode");
+  return gen_heap->old_generation()->used_regions() + gen_heap->young_generation()->used_regions();
 }
 
 size_t ShenandoahGlobalGeneration::used_regions_size() const {
@@ -111,14 +111,14 @@ ShenandoahHeuristics* ShenandoahGlobalGeneration::initialize_heuristics(Shenando
 
 void ShenandoahGlobalGeneration::set_mark_complete() {
   ShenandoahGeneration::set_mark_complete();
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  heap->young_generation()->set_mark_complete();
-  heap->old_generation()->set_mark_complete();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  gen_heap->young_generation()->set_mark_complete();
+  gen_heap->old_generation()->set_mark_complete();
 }
 
 void ShenandoahGlobalGeneration::set_mark_incomplete() {
   ShenandoahGeneration::set_mark_incomplete();
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  heap->young_generation()->set_mark_incomplete();
-  heap->old_generation()->set_mark_incomplete();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  gen_heap->young_generation()->set_mark_incomplete();
+  gen_heap->old_generation()->set_mark_incomplete();
 }

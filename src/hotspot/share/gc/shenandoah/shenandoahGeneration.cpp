@@ -198,7 +198,7 @@ void ShenandoahGeneration::swap_remembered_set() {
 
   // TODO: Eventually, we want replace this with a constant-time exchange of pointers.
   ShenandoahSquirrelAwayCardTable task;
-  heap->old_generation()->parallel_heap_region_iterate(&task);
+  ((ShenandoahGenerationalHeap*)heap)->old_generation()->parallel_heap_region_iterate(&task);
 }
 
 // If a concurrent cycle fails _after_ the card table has been swapped we need to update the read card
@@ -212,7 +212,7 @@ void ShenandoahGeneration::merge_write_table() {
   shenandoah_assert_safepoint();
 
   ShenandoahMergeWriteTable task;
-  heap->old_generation()->parallel_heap_region_iterate(&task);
+  ((ShenandoahGenerationalHeap*)heap)->old_generation()->parallel_heap_region_iterate(&task);
 }
 
 void ShenandoahGeneration::prepare_gc() {

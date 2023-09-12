@@ -286,38 +286,6 @@ inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size
   return allocate_from_gclab_slow(thread, size);
 }
 
-inline HeapWord* ShenandoahHeap::allocate_from_plab(Thread* thread, size_t size, bool is_promotion) {
-  assert(UseTLAB, "TLABs should be enabled");
-
-  PLAB* plab = ShenandoahThreadLocalData::plab(thread);
-  HeapWord* obj;
-
-  if (plab == nullptr) {
-    assert(!thread->is_Java_thread() && !thread->is_Worker_thread(), "Performance: thread should have PLAB: %s", thread->name());
-    // No PLABs in this thread, fallback to shared allocation
-    return nullptr;
-  } else if (is_promotion && !ShenandoahThreadLocalData::allow_plab_promotions(thread)) {
-    return nullptr;
-  }
-  // if plab->word_size() <= 0, thread's plab not yet initialized for this pass, so allow_plab_promotions() is not trustworthy
-  obj = plab->allocate(size);
-  if ((obj == nullptr) && (plab->words_remaining() < PLAB::min_size())) {
-    // allocate_from_plab_slow will establish allow_plab_promotions(thread) for future invocations
-    obj = allocate_from_plab_slow(thread, size, is_promotion);
-  }
-  // if plab->words_remaining() >= PLAB::min_size(), just return nullptr so we can use a shared allocation
-  if (obj == nullptr) {
-    return nullptr;
-  }
-
-  if (is_promotion) {
-    ShenandoahThreadLocalData::add_to_plab_promoted(thread, size * HeapWordSize);
-  } else {
-    ShenandoahThreadLocalData::add_to_plab_evacuated(thread, size * HeapWordSize);
-  }
-  return obj;
-}
-
 inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
   assert(thread == Thread::current(), "Expected thread parameter to be current thread.");
   if (ShenandoahThreadLocalData::is_oom_during_evac(thread)) {
@@ -388,7 +356,7 @@ inline oop ShenandoahHeap::try_evacuate_object(oop p, Thread* thread, Shenandoah
            if (plab != nullptr) {
              has_plab = true;
            }
-           copy = allocate_from_plab(thread, size, is_promotion);
+           copy = ((ShenandoahGenerationalHeap*)this)->allocate_from_plab(thread, size, is_promotion);
            if ((copy == nullptr) && (size < ShenandoahThreadLocalData::plab_size(thread)) &&
                ShenandoahThreadLocalData::plab_retries_enabled(thread)) {
              // PLAB allocation failed because we are bumping up against the limit on old evacuation reserve or because

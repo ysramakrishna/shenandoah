@@ -194,4 +194,36 @@ inline void ShenandoahGenerationalHeap::mark_card_as_dirty(void* location) {
   _card_scan->mark_card_as_dirty((HeapWord*)location);
 }
 
+inline HeapWord* ShenandoahGenerationalHeap::allocate_from_plab(Thread* thread, size_t size, bool is_promotion) {
+  assert(UseTLAB, "TLABs should be enabled");
+  
+  PLAB* plab = ShenandoahThreadLocalData::plab(thread);
+  HeapWord* obj;
+    
+  if (plab == nullptr) {
+    assert(!thread->is_Java_thread() && !thread->is_Worker_thread(), "Performance: thread should have PLAB: %s", thread->name());   
+    // No PLABs in this thread, fallback to shared allocation
+    return nullptr;
+  } else if (is_promotion && !ShenandoahThreadLocalData::allow_plab_promotions(thread)) {
+    return nullptr;
+  }   
+  // if plab->word_size() <= 0, thread's plab not yet initialized for this pass, so allow_plab_promotions() is not trustworthy
+  obj = plab->allocate(size);
+  if ((obj == nullptr) && (plab->words_remaining() < PLAB::min_size())) {
+  // allocate_from_plab_slow will establish allow_plab_promotions(thread) for future invocations
+  obj = allocate_from_plab_slow(thread, size, is_promotion);
+  }
+  // if plab->words_remaining() >= PLAB::min_size(), just return nullptr so we can use a shared allocation
+  if (obj == nullptr) {
+    return nullptr;
+  } 
+
+  if (is_promotion) {
+    ShenandoahThreadLocalData::add_to_plab_promoted(thread, size * HeapWordSize);
+  } else {
+    ShenandoahThreadLocalData::add_to_plab_evacuated(thread, size * HeapWordSize);
+  }   
+  return obj;
+}
+
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALHEAP_INLINE_HPP

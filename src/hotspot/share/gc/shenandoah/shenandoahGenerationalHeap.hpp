@@ -102,6 +102,13 @@ private:
   bool is_old_bitmap_stable() const;
   bool is_gc_generation_young() const;
 
+  // ---------- Allocation, including promotion local allocation buffers
+  //
+  inline HeapWord* allocate_from_plab(Thread* thread, size_t size, bool is_promotion);
+  HeapWord* allocate_from_plab_slow(Thread* thread, size_t size, bool is_promotion);
+  HeapWord* allocate_new_plab(size_t min_size, size_t word_size, size_t* actual_size);
+  
+
   // ---------- Initialization, termination, identification, printing routines
   //
 public:

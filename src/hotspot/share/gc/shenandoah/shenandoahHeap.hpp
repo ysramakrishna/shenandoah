@@ -661,10 +661,6 @@ private:
   HeapWord* allocate_from_gclab_slow(Thread* thread, size_t size);
   HeapWord* allocate_new_gclab(size_t min_size, size_t word_size, size_t* actual_size);
 
-  inline HeapWord* allocate_from_plab(Thread* thread, size_t size, bool is_promotion);
-  HeapWord* allocate_from_plab_slow(Thread* thread, size_t size, bool is_promotion);
-  HeapWord* allocate_new_plab(size_t min_size, size_t word_size, size_t* actual_size);
-
 public:
   HeapWord* allocate_memory(ShenandoahAllocRequest& request, bool is_promotion);
   HeapWord* mem_allocate(size_t size, bool* what) override;

@@ -162,9 +162,6 @@ private:
   ShenandoahHeapLock _lock;
   ShenandoahGeneration* _gc_generation;
 
-  // true iff we are concurrently coalescing and filling old-gen HeapRegions
-  bool _prepare_for_old_mark;
-
 public:
   ShenandoahHeapLock* lock() {
     return &_lock;
@@ -196,7 +193,7 @@ public:
   ShenandoahHeap(ShenandoahCollectorPolicy* policy);
   jint initialize() override;
   void post_initialize() override;
-  void initialize_heuristics_generations();
+  virtual void initialize_heuristics();
   virtual void print_init_logger() const;
   void initialize_serviceability() override;
 
@@ -221,15 +218,8 @@ public:
 // ---------- Heap counters and metrics
 //
 private:
-           size_t _initial_size;
-           size_t _minimum_size;
-           size_t _promotion_potential;
-           size_t _promotion_in_place_potential;
-           size_t _pad_for_promote_in_place;    // bytes of filler
-           size_t _promotable_humongous_regions;
-           size_t _promotable_humongous_usage;
-           size_t _regular_regions_promoted_in_place;
-           size_t _regular_usage_promoted_in_place;
+  size_t _initial_size;
+  size_t _minimum_size;
 
   volatile size_t _soft_max_size;
   shenandoah_padding(0);
@@ -439,62 +429,9 @@ public:
   inline bool is_stw_gc_in_progress() const;
   inline bool is_concurrent_strong_root_in_progress() const;
   inline bool is_concurrent_weak_root_in_progress() const;
-  inline bool is_prepare_for_old_mark_in_progress() const;
-  inline bool is_aging_cycle() const;
   inline bool upgraded_to_full() { return _upgraded_to_full; }
   inline void start_conc_gc() { _upgraded_to_full = false; }
   inline void record_upgrade_to_full() { _upgraded_to_full = true; }
-
-  inline size_t capture_old_usage(size_t usage);
-  inline void set_previous_promotion(size_t promoted_bytes);
-  inline size_t get_previous_promotion() const;
-
-  inline void clear_promotion_potential() { _promotion_potential = 0; };
-  inline void set_promotion_potential(size_t val) { _promotion_potential = val; };
-  inline size_t get_promotion_potential() { return _promotion_potential; };
-
-  inline void clear_promotion_in_place_potential() { _promotion_in_place_potential = 0; };
-  inline void set_promotion_in_place_potential(size_t val) { _promotion_in_place_potential = val; };
-  inline size_t get_promotion_in_place_potential() { return _promotion_in_place_potential; };
-
-  inline void set_pad_for_promote_in_place(size_t pad) { _pad_for_promote_in_place = pad; }
-  inline size_t get_pad_for_promote_in_place() { return _pad_for_promote_in_place; }
-
-  inline void reserve_promotable_humongous_regions(size_t region_count) { _promotable_humongous_regions = region_count; }
-  inline void reserve_promotable_humongous_usage(size_t bytes) { _promotable_humongous_usage = bytes; }
-  inline void reserve_promotable_regular_regions(size_t region_count) { _regular_regions_promoted_in_place = region_count; }
-  inline void reserve_promotable_regular_usage(size_t used_bytes) { _regular_usage_promoted_in_place = used_bytes; }
-
-  inline size_t get_promotable_humongous_regions() { return _promotable_humongous_regions; }
-  inline size_t get_promotable_humongous_usage() { return _promotable_humongous_usage; }
-  inline size_t get_regular_regions_promoted_in_place() { return _regular_regions_promoted_in_place; }
-  inline size_t get_regular_usage_promoted_in_place() { return _regular_usage_promoted_in_place; }
-
-  // Returns previous value
-  inline size_t set_promoted_reserve(size_t new_val);
-  inline size_t get_promoted_reserve() const;
-  inline void augment_promo_reserve(size_t increment);
-
-  inline void reset_promoted_expended();
-  inline size_t expend_promoted(size_t increment);
-  inline size_t unexpend_promoted(size_t decrement);
-  inline size_t get_promoted_expended();
-
-  // Returns previous value
-  inline size_t set_old_evac_reserve(size_t new_val);
-  inline size_t get_old_evac_reserve() const;
-  inline void augment_old_evac_reserve(size_t increment);
-
-  inline void reset_old_evac_expended();
-  inline size_t expend_old_evac(size_t increment);
-  inline size_t get_old_evac_expended();
-
-  // Returns previous value
-  inline size_t set_young_evac_reserve(size_t new_val);
-  inline size_t get_young_evac_reserve() const;
-
-  // Return the age census object for young gen (in generational mode)
-  inline ShenandoahAgeCensus* age_census() const;
 
 private:
   void manage_satb_barrier(bool active);
@@ -603,8 +540,6 @@ public:
 private:
   ShenandoahMonitoringSupport* _monitoring_support;
   MemoryPool*                  _memory_pool;
-  MemoryPool*                  _young_gen_memory_pool;
-  MemoryPool*                  _old_gen_memory_pool;
 
   GCMemoryManager              _stw_memory_manager;
   GCMemoryManager              _cycle_memory_manager;
@@ -628,7 +563,6 @@ public:
 // ---------- Class Unloading
 //
 private:
-  ShenandoahSharedFlag  _is_aging_cycle;
   ShenandoahSharedFlag _unload_classes;
   ShenandoahUnload     _unloader;
 
@@ -721,10 +655,6 @@ public:
 // ---------- Allocation support
 //
 private:
-  // How many bytes to transfer between old and young after we have finished recycling collection set regions?
-  size_t _old_regions_surplus;
-  size_t _old_regions_deficit;
-
   HeapWord* allocate_memory_under_lock(ShenandoahAllocRequest& request, bool& in_new_region, bool is_promotion);
 
   inline HeapWord* allocate_from_gclab(Thread* thread, size_t size);
@@ -755,14 +685,6 @@ public:
   void labs_make_parsable();
   void tlabs_retire(bool resize);
   void gclabs_retire(bool resize);
-
-  void set_young_lab_region_flags();
-
-  inline void set_old_region_surplus(size_t surplus) { _old_regions_surplus = surplus; };
-  inline void set_old_region_deficit(size_t deficit) { _old_regions_deficit = deficit; };
-
-  inline size_t get_old_region_surplus() { return _old_regions_surplus; };
-  inline size_t get_old_region_deficit() { return _old_regions_deficit; };
 
 // ---------- Marking support
 //
@@ -845,24 +767,6 @@ public:
   inline void leave_evacuation(Thread* t);
 
   inline bool clear_old_evacuation_failure();
-
-// ---------- Generational support
-//
-private:
-  RememberedScanner* _card_scan;
-
-public:
-  inline RememberedScanner* card_scan() { return _card_scan; }
-  void clear_cards_for(ShenandoahHeapRegion* region);
-  void dirty_cards(HeapWord* start, HeapWord* end);
-  void clear_cards(HeapWord* start, HeapWord* end);
-  void mark_card_as_dirty(void* location);
-  void retire_plab(PLAB* plab);
-  void retire_plab(PLAB* plab, Thread* thread);
-  void cancel_old_gc();
-  bool is_old_gc_active();
-
-  void adjust_generation_sizes_for_next_cycle(size_t old_xfer_limit, size_t young_cset_regions, size_t old_cset_regions);
 
 // ---------- Helper functions
 //

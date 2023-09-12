@@ -28,8 +28,10 @@
 
 #include "gc/shenandoah/shenandoahHeapRegion.hpp"
 
+#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahPacer.inline.hpp"
+#include "gc/shenandoah/mode/shenandoahMode.hpp"
 #include "runtime/atomic.hpp"
 
 // If next available memory is not aligned on address that is multiple of alignment, fill the empty space
@@ -84,7 +86,8 @@ HeapWord* ShenandoahHeapRegion::allocate_aligned(size_t size, ShenandoahAllocReq
     if (pad_words > 0) {
       assert(pad_words >= ShenandoahHeap::min_fill_size(), "pad_words expanded above to meet size constraint");
       ShenandoahHeap::fill_with_object(orig_top, pad_words);
-      ShenandoahHeap::heap()->card_scan()->register_object(orig_top);
+      assert(ShenandoahHeap::heap()->mode()->is_generational(), "Error at next line?");
+      ShenandoahGenerationalHeap::gen_heap()->card_scan()->register_object(orig_top);
     }
 
     make_regular_allocation(req.affiliation());

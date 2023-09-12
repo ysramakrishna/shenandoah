@@ -318,12 +318,6 @@ inline HeapWord* ShenandoahHeap::allocate_from_plab(Thread* thread, size_t size,
   return obj;
 }
 
-inline ShenandoahAgeCensus* ShenandoahHeap::age_census() const {
-  assert(mode()->is_generational(), "Only in generational mode");
-  assert(_age_census != nullptr, "Error: not initialized");
-  return _age_census;
-}
-
 inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
   assert(thread == Thread::current(), "Expected thread parameter to be current thread.");
   if (ShenandoahThreadLocalData::is_oom_during_evac(thread)) {
@@ -340,6 +334,7 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
   ShenandoahAffiliation target_gen = r->affiliation();
   if (mode()->is_generational() && ShenandoahHeap::heap()->is_gc_generation_young() &&
       target_gen == YOUNG_GENERATION) {
+    ShenandoahGenerationalHeap* gen_heap = ((ShenandoahGenerationalHeap*)this);
     markWord mark = p->mark();
     if (mark.is_marked()) {
       // Already forwarded.
@@ -348,7 +343,7 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
     if (mark.has_displaced_mark_helper()) {
       // We don't want to deal with MT here just to ensure we read the right mark word.
       // Skip the potential promotion attempt for this one.
-    } else if (r->age() + mark.age() >= age_census()->tenuring_threshold()) {
+    } else if (r->age() + mark.age() >= gen_heap->age_census()->tenuring_threshold()) {
       oop result = try_evacuate_object(p, thread, r, OLD_GENERATION);
       if (result != nullptr) {
         return result;
@@ -466,7 +461,7 @@ inline oop ShenandoahHeap::try_evacuate_object(oop p, Thread* thread, Shenandoah
 
   oop copy_val = cast_to_oop(copy);
 
-  if (mode()->is_generational() && target_gen == YOUNG_GENERATION && is_aging_cycle()) {
+  if (mode()->is_generational() && target_gen == YOUNG_GENERATION && ((ShenandoahGenerationalHeap*)this)->is_aging_cycle()) {
     ShenandoahHeap::increase_object_age(copy_val, from_region->age() + 1);
   }
 
@@ -699,96 +694,6 @@ inline bool ShenandoahHeap::is_concurrent_weak_root_in_progress() const {
   return _gc_state.is_set(WEAK_ROOTS);
 }
 
-inline bool ShenandoahHeap::is_aging_cycle() const {
-  return _is_aging_cycle.is_set();
-}
-
-inline bool ShenandoahHeap::is_prepare_for_old_mark_in_progress() const {
-  return _prepare_for_old_mark;
-}
-
-inline size_t ShenandoahHeap::set_promoted_reserve(size_t new_val) {
-  size_t orig = _promoted_reserve;
-  _promoted_reserve = new_val;
-  return orig;
-}
-
-inline size_t ShenandoahHeap::get_promoted_reserve() const {
-  return _promoted_reserve;
-}
-
-// returns previous value
-size_t ShenandoahHeap::capture_old_usage(size_t old_usage) {
-  size_t previous_value = _captured_old_usage;
-  _captured_old_usage = old_usage;
-  return previous_value;
-}
-
-void ShenandoahHeap::set_previous_promotion(size_t promoted_bytes) {
-  shenandoah_assert_heaplocked();
-  _previous_promotion = promoted_bytes;
-}
-
-size_t ShenandoahHeap::get_previous_promotion() const {
-  return _previous_promotion;
-}
-
-inline size_t ShenandoahHeap::set_old_evac_reserve(size_t new_val) {
-  size_t orig = _old_evac_reserve;
-  _old_evac_reserve = new_val;
-  return orig;
-}
-
-inline size_t ShenandoahHeap::get_old_evac_reserve() const {
-  return _old_evac_reserve;
-}
-
-inline void ShenandoahHeap::augment_old_evac_reserve(size_t increment) {
-  _old_evac_reserve += increment;
-}
-
-inline void ShenandoahHeap::augment_promo_reserve(size_t increment) {
-  _promoted_reserve += increment;
-}
-
-inline void ShenandoahHeap::reset_old_evac_expended() {
-  Atomic::store(&_old_evac_expended, (size_t) 0);
-}
-
-inline size_t ShenandoahHeap::expend_old_evac(size_t increment) {
-  return Atomic::add(&_old_evac_expended, increment);
-}
-
-inline size_t ShenandoahHeap::get_old_evac_expended() {
-  return Atomic::load(&_old_evac_expended);
-}
-
-inline void ShenandoahHeap::reset_promoted_expended() {
-  Atomic::store(&_promoted_expended, (size_t) 0);
-}
-
-inline size_t ShenandoahHeap::expend_promoted(size_t increment) {
-  return Atomic::add(&_promoted_expended, increment);
-}
-
-inline size_t ShenandoahHeap::unexpend_promoted(size_t decrement) {
-  return Atomic::sub(&_promoted_expended, decrement);
-}
-
-inline size_t ShenandoahHeap::get_promoted_expended() {
-  return Atomic::load(&_promoted_expended);
-}
-
-inline size_t ShenandoahHeap::set_young_evac_reserve(size_t new_val) {
-  size_t orig = _young_evac_reserve;
-  _young_evac_reserve = new_val;
-  return orig;
-}
-
-inline size_t ShenandoahHeap::get_young_evac_reserve() const {
-  return _young_evac_reserve;
-}
-
 template<class T>
 inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, T* cl) {
   marked_object_iterate(region, cl, region->top());
@@ -936,30 +841,6 @@ inline ShenandoahMarkingContext* ShenandoahHeap::complete_marking_context() cons
 
 inline ShenandoahMarkingContext* ShenandoahHeap::marking_context() const {
   return _marking_context;
-}
-
-inline void ShenandoahHeap::clear_cards_for(ShenandoahHeapRegion* region) {
-  if (mode()->is_generational()) {
-    _card_scan->mark_range_as_empty(region->bottom(), pointer_delta(region->end(), region->bottom()));
-  }
-}
-
-inline void ShenandoahHeap::dirty_cards(HeapWord* start, HeapWord* end) {
-  assert(mode()->is_generational(), "Should only be used for generational mode");
-  size_t words = pointer_delta(end, start);
-  _card_scan->mark_range_as_dirty(start, words);
-}
-
-inline void ShenandoahHeap::clear_cards(HeapWord* start, HeapWord* end) {
-  assert(mode()->is_generational(), "Should only be used for generational mode");
-  size_t words = pointer_delta(end, start);
-  _card_scan->mark_range_as_clean(start, words);
-}
-
-inline void ShenandoahHeap::mark_card_as_dirty(void* location) {
-  if (mode()->is_generational()) {
-    _card_scan->mark_card_as_dirty((HeapWord*)location);
-  }
 }
 
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

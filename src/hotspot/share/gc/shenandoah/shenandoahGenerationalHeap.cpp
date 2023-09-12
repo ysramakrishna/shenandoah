@@ -49,13 +49,13 @@ public:
   void print_heap() override {
     ShenandoahInitLogger::print_heap();
 
-    ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::heap();
+    ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
 
-    ShenandoahYoungGeneration* young = heap->young_generation();
+    ShenandoahYoungGeneration* young = gen_heap->young_generation();
     log_info(gc, init)("Young Generation Soft Size: " PROPERFMT, PROPERFMTARGS(young->soft_max_capacity()));
     log_info(gc, init)("Young Generation Max: " PROPERFMT, PROPERFMTARGS(young->max_capacity()));
 
-    ShenandoahOldGeneration* old = heap->old_generation();
+    ShenandoahOldGeneration* old = gen_heap->old_generation();
     log_info(gc, init)("Old Generation Soft Size: " PROPERFMT, PROPERFMTARGS(old->soft_max_capacity()));
     log_info(gc, init)("Old Generation Max: " PROPERFMT, PROPERFMTARGS(old->max_capacity()));
   }
@@ -64,22 +64,74 @@ protected:
   void print_gc_specific() override {
     ShenandoahInitLogger::print_gc_specific();
 
-    ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::heap();
-    log_info(gc, init)("Young Heuristics: %s", heap->young_generation()->heuristics()->name());
-    log_info(gc, init)("Old Heuristics: %s", heap->old_generation()->heuristics()->name());
+    ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+    log_info(gc, init)("Young Heuristics: %s", gen_heap->young_generation()->heuristics()->name());
+    log_info(gc, init)("Old Heuristics: %s", gen_heap->old_generation()->heuristics()->name());
   }
 };
 
+ShenandoahGenerationalHeap::ShenandoahGenerationalHeap(ShenandoahCollectorPolicy* policy) :
+  ShenandoahHeap(policy),
+  _promotion_potential(0),
+  _promotion_in_place_potential(0),
+  _young_generation(nullptr),
+  _promoted_reserve(0),
+  _old_evac_reserve(0),
+  _old_evac_expended(0),
+  _young_evac_reserve(0),
+  _captured_old_usage(0),
+  _previous_promotion(0),
+  _age_census(nullptr),
+  _generation_sizer(&_mmu_tracker),
+  _old_generation(nullptr),
+  _young_gen_memory_pool(nullptr),
+  _old_gen_memory_pool(nullptr)
+  _old_regions_surplus(0),
+  _old_regions_deficit(0),
+  _card_scan(nullptr)
+{
+  // nothing yet
+}
+
+
+/* 
 ShenandoahGenerationalHeap* ShenandoahGenerationalHeap::heap() {
   CollectedHeap* heap = Universe::heap();
   return checked_cast<ShenandoahGenerationalHeap*>(heap);
 }
+*/
 
 void ShenandoahGenerationalHeap::print_init_logger() const {
   ShenandoahGenerationalInitLogger logger;
   logger.print_all();
 }
 
+void ShenandoahGenerationalHeap::initialize_heuristics_generations() {
+
+  // Call superclass method
+  ShenandoahHeap::initialize_heuristics_generations();
+
+  assert(_gc_mode->is_generational(), "Error");
+
+  // Max capacity is the maximum _allowed_ capacity. That is, the maximum allowed capacity
+  // for old would be total heap - minimum capacity of young. This means the sum of the maximum
+  // allowed for old and young could exceed the total heap size. It remains the case that the
+  // _actual_ capacity of young + old = total.
+  _generation_sizer.heap_size_changed(max_capacity());
+  size_t initial_capacity_young = _generation_sizer.max_young_size();
+  size_t max_capacity_young = _generation_sizer.max_young_size();
+  size_t initial_capacity_old = max_capacity() - max_capacity_young;
+  size_t max_capacity_old = max_capacity() - initial_capacity_young;
+
+  _young_generation = new ShenandoahYoungGeneration(_max_workers, max_capacity_young, initial_capacity_young);
+  _old_generation = new ShenandoahOldGeneration(_max_workers, max_capacity_old, initial_capacity_old);
+  _global_generation = new ShenandoahGlobalGeneration(_gc_mode->is_generational(), _max_workers, max_capacity(), max_capacity());
+  _global_generation->initialize_heuristics(_gc_mode);
+  if (mode()->is_generational()) {
+    _young_generation->initialize_heuristics(_gc_mode);
+    _old_generation->initialize_heuristics(_gc_mode);
+  }
+}
 
 ShenandoahOldHeuristics* ShenandoahGenerationalHeap::old_heuristics() {
   return (ShenandoahOldHeuristics*) _old_generation->heuristics();
@@ -657,56 +709,4 @@ size_t ShenandoahGenerationalHeap::select_aged_regions(size_t old_available, siz
   set_promotion_potential(promo_potential);
   set_promotion_in_place_potential(anticipated_promote_in_place_live);
   return old_consumed;
-}
-
-
-#include "precompiled.hpp"
-
-#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
-#include "gc/shenandoah/shenandoahHeap.inline.hpp"
-#include "gc/shenandoah/shenandoahInitLogger.hpp"
-#include "gc/shenandoah/shenandoahOldGeneration.hpp"
-#include "gc/shenandoah/shenandoahYoungGeneration.hpp"
-
-#include "logging/log.hpp"
-
-class ShenandoahGenerationalInitLogger : public ShenandoahInitLogger {
-public:
-  static void print() {
-    ShenandoahGenerationalInitLogger logger;
-    logger.print_all();
-  }
-
-  void print_heap() override {
-    ShenandoahInitLogger::print_heap();
-
-    ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::heap();
-
-    ShenandoahYoungGeneration* young = heap->young_generation();
-    log_info(gc, init)("Young Generation Soft Size: " PROPERFMT, PROPERFMTARGS(young->soft_max_capacity()));
-    log_info(gc, init)("Young Generation Max: " PROPERFMT, PROPERFMTARGS(young->max_capacity()));
-
-    ShenandoahOldGeneration* old = heap->old_generation();
-    log_info(gc, init)("Old Generation Soft Size: " PROPERFMT, PROPERFMTARGS(old->soft_max_capacity()));
-    log_info(gc, init)("Old Generation Max: " PROPERFMT, PROPERFMTARGS(old->max_capacity()));
-  }
-
-protected:
-  void print_gc_specific() override {
-    ShenandoahInitLogger::print_gc_specific();
-
-    ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::heap();
-    log_info(gc, init)("Young Heuristics: %s", heap->young_generation()->heuristics()->name());
-    log_info(gc, init)("Old Heuristics: %s", heap->old_generation()->heuristics()->name());
-  }
-};
-
-ShenandoahGenerationalHeap* ShenandoahGenerationalHeap::heap() {
-  CollectedHeap* heap = Universe::heap();
-  return checked_cast<ShenandoahGenerationalHeap*>(heap);
-}
-
-void ShenandoahGenerationalHeap::print_init_logger() const {
-  ShenandoahGenerationalInitLogger logger;
-  logger.print_all();
 }

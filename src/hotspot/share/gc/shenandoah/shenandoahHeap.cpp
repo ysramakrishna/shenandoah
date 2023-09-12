@@ -190,7 +190,7 @@ jint ShenandoahHeap::initialize() {
   _committed = _initial_size;
 
   // Now we know the number of regions and heap sizes, initialize the heuristics.
-  initialize_heuristics_generations();
+  initialize_heuristics();
 
   size_t heap_page_size   = UseLargePages ? os::large_page_size() : os::vm_page_size();
   size_t bitmap_page_size = UseLargePages ? os::large_page_size() : os::vm_page_size();
@@ -527,7 +527,7 @@ size_t ShenandoahHeap::min_size_for(ShenandoahGeneration* generation) const {
   }
 }
 
-void ShenandoahHeap::initialize_heuristics_generations() {
+void ShenandoahHeap::initialize_heuristics() {
   if (ShenandoahGCMode != nullptr) {
     if (strcmp(ShenandoahGCMode, "satb") == 0) {
       _gc_mode = new ShenandoahSATBMode();
@@ -555,24 +555,6 @@ void ShenandoahHeap::initialize_heuristics_generations() {
                     _gc_mode->name()));
   }
  
-  // Max capacity is the maximum _allowed_ capacity. That is, the maximum allowed capacity
-  // for old would be total heap - minimum capacity of young. This means the sum of the maximum
-  // allowed for old and young could exceed the total heap size. It remains the case that the
-  // _actual_ capacity of young + old = total.
-  _generation_sizer.heap_size_changed(max_capacity());
-  size_t initial_capacity_young = _generation_sizer.max_young_size();
-  size_t max_capacity_young = _generation_sizer.max_young_size();
-  size_t initial_capacity_old = max_capacity() - max_capacity_young;
-  size_t max_capacity_old = max_capacity() - initial_capacity_young;
-
-  _young_generation = new ShenandoahYoungGeneration(_max_workers, max_capacity_young, initial_capacity_young);
-  _old_generation = new ShenandoahOldGeneration(_max_workers, max_capacity_old, initial_capacity_old);
-  _global_generation = new ShenandoahGlobalGeneration(_gc_mode->is_generational(), _max_workers, max_capacity(), max_capacity());
-  _global_generation->initialize_heuristics(_gc_mode);
-  if (mode()->is_generational()) {
-    _young_generation->initialize_heuristics(_gc_mode);
-    _old_generation->initialize_heuristics(_gc_mode);
-  }
   _evac_tracker = new ShenandoahEvacuationTracker(mode()->is_generational());
 }
 
@@ -586,8 +568,6 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _gc_generation(nullptr),
   _prepare_for_old_mark(false),
   _initial_size(0),
-  _promotion_potential(0),
-  _promotion_in_place_potential(0),
   _committed(0),
   _max_workers(MAX3(ConcGCThreads, ParallelGCThreads, 1U)),
   _workers(nullptr),
@@ -597,19 +577,10 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _regions(nullptr),
   _affiliations(nullptr),
   _update_refs_iterator(this),
-  _promoted_reserve(0),
-  _old_evac_reserve(0),
-  _old_evac_expended(0),
-  _young_evac_reserve(0),
-  _captured_old_usage(0),
-  _previous_promotion(0),
-  _upgraded_to_full(false),
-  _age_census(nullptr),
+   _upgraded_to_full(false),
   _has_evacuation_reserve_quantities(false),
   _cancel_requested_time(0),
-  _young_generation(nullptr),
   _global_generation(nullptr),
-  _old_generation(nullptr),
   _control_thread(nullptr),
   _regulator_thread(nullptr),
   _shenandoah_policy(policy),
@@ -619,18 +590,13 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _phase_timings(nullptr),
   _evac_tracker(nullptr),
   _mmu_tracker(),
-  _generation_sizer(&_mmu_tracker),
   _monitoring_support(nullptr),
   _memory_pool(nullptr),
-  _young_gen_memory_pool(nullptr),
-  _old_gen_memory_pool(nullptr),
   _stw_memory_manager("Shenandoah Pauses"),
   _cycle_memory_manager("Shenandoah Cycles"),
   _gc_timer(new ConcurrentGCTimer()),
   _soft_ref_policy(),
   _log_min_obj_alignment_in_bytes(LogMinObjAlignmentInBytes),
-  _old_regions_surplus(0),
-  _old_regions_deficit(0),
   _marking_context(nullptr),
   _bitmap_size(0),
   _bitmap_regions_per_slice(0),
@@ -638,8 +604,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _bitmap_region_special(false),
   _aux_bitmap_region_special(false),
   _liveness_cache(nullptr),
-  _collection_set(nullptr),
-  _card_scan(nullptr)
+  _collection_set(nullptr)
 {
 }
 

@@ -76,4 +76,122 @@ inline bool ShenandoahGenerationalHeap::is_old(oop obj) const {
   return is_gc_generation_young() && is_in_old(obj);
 }
 
+inline ShenandoahAgeCensus* ShenandoahGenerationalHeap::age_census() const {
+  assert(mode()->is_generational(), "Only in generational mode");
+  assert(_age_census != nullptr, "Error: not initialized");
+  return _age_census;
+}
+
+inline bool ShenandoahGenerationalHeap::is_aging_cycle() const {
+  return _is_aging_cycle.is_set();
+}
+
+inline bool ShenandoahGenerationalHeap::is_prepare_for_old_mark_in_progress() const {
+  return _prepare_for_old_mark;
+}
+
+inline size_t ShenandoahGenerationalHeap::set_promoted_reserve(size_t new_val) {
+  size_t orig = _promoted_reserve;
+  _promoted_reserve = new_val;
+  return orig;
+}
+
+inline size_t ShenandoahGenerationalHeap::get_promoted_reserve() const {
+  return _promoted_reserve;
+}
+
+// returns previous value
+size_t ShenandoahGenerationalHeap::capture_old_usage(size_t old_usage) {
+  size_t previous_value = _captured_old_usage;
+  _captured_old_usage = old_usage;
+  return previous_value;
+}
+
+void ShenandoahGenerationalHeap::set_previous_promotion(size_t promoted_bytes) {
+  shenandoah_assert_heaplocked();
+  _previous_promotion = promoted_bytes;
+}
+
+size_t ShenandoahGenerationalHeap::get_previous_promotion() const {
+  return _previous_promotion;
+}
+
+inline size_t ShenandoahGenerationalHeap::set_old_evac_reserve(size_t new_val) {
+  size_t orig = _old_evac_reserve;
+  _old_evac_reserve = new_val;
+  return orig;
+}
+
+inline size_t ShenandoahGenerationalHeap::get_old_evac_reserve() const {
+  return _old_evac_reserve;
+}
+
+inline void ShenandoahGenerationalHeap::augment_old_evac_reserve(size_t increment) {
+  _old_evac_reserve += increment;
+}
+
+inline void ShenandoahGenerationalHeap::augment_promo_reserve(size_t increment) {
+  _promoted_reserve += increment;
+}
+
+inline void ShenandoahGenerationalHeap::reset_old_evac_expended() {
+  Atomic::store(&_old_evac_expended, (size_t) 0);
+}
+
+inline size_t ShenandoahGenerationalHeap::expend_old_evac(size_t increment) {
+  return Atomic::add(&_old_evac_expended, increment);
+}
+
+inline size_t ShenandoahGenerationalHeap::get_old_evac_expended() {
+  return Atomic::load(&_old_evac_expended);
+}
+
+inline void ShenandoahGenerationalHeap::reset_promoted_expended() {
+  Atomic::store(&_promoted_expended, (size_t) 0);
+}
+
+inline size_t ShenandoahGenerationalHeap::expend_promoted(size_t increment) {
+  return Atomic::add(&_promoted_expended, increment);
+}
+
+inline size_t ShenandoahGenerationalHeap::unexpend_promoted(size_t decrement) {
+  return Atomic::sub(&_promoted_expended, decrement);
+}
+
+inline size_t ShenandoahGenerationalHeap::get_promoted_expended() {
+  return Atomic::load(&_promoted_expended);
+}
+
+inline size_t ShenandoahGenerationalHeap::set_young_evac_reserve(size_t new_val) {
+  size_t orig = _young_evac_reserve;
+  _young_evac_reserve = new_val;
+  return orig;
+}
+
+inline size_t ShenandoahGenerationalHeap::get_young_evac_reserve() const {
+  return _young_evac_reserve;
+}
+
+inline void ShenandoahGenerationalHeap::clear_cards_for(ShenandoahHeapRegion* region) {
+  assert(mode()->is_generational(), "Error");
+  _card_scan->mark_range_as_empty(region->bottom(), pointer_delta(region->end(), region->bottom()));
+}
+
+inline void ShenandoahGenerationalHeap::dirty_cards(HeapWord* start, HeapWord* end) {
+  assert(mode()->is_generational(), "Should only be used for generational mode");
+  size_t words = pointer_delta(end, start);
+  _card_scan->mark_range_as_dirty(start, words);
+}
+
+inline void ShenandoahGenerationalHeap::clear_cards(HeapWord* start, HeapWord* end) {
+  assert(mode()->is_generational(), "Should only be used for generational mode");
+  size_t words = pointer_delta(end, start);
+  _card_scan->mark_range_as_clean(start, words);
+}
+
+inline void ShenandoahGenerationalHeap::mark_card_as_dirty(void* location) {
+  assert(mode()->is_generational(), "Error");
+  _card_scan->mark_card_as_dirty((HeapWord*)location);
+}
+
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALHEAP_INLINE_HPP

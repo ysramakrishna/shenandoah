@@ -45,23 +45,71 @@ class ShenandoahGenerationalHeap : public ShenandoahHeap {
   friend class ShenandoahFullGC;
   friend class ShenandoahUnload;
 
+private:
+  // ShenandoahGeneration* _gc_generation;
+
+  // true iff we are concurrently coalescing and filling old-gen HeapRegions
+  bool _prepare_for_old_mark;
+
+  // ---------- Heap counters and metrics
+  //
+  size_t _promotion_potential;
+  size_t _promotion_in_place_potential;
+  size_t _pad_for_promote_in_place;    // bytes of filler
+  size_t _promotable_humongous_regions;
+  size_t _promotable_humongous_usage;
+  size_t _regular_regions_promoted_in_place;
+  size_t _regular_usage_promoted_in_place;
+
+
+  size_t _promoted_reserve;            // Bytes reserved within old-gen to hold the results of promotion
+  volatile size_t _promoted_expended;  // Bytes of old-gen memory expended on promotions
+
+  // Allocation of old GCLABs (aka PLABs) assures that _old_evac_expended + request-size < _old_evac_reserved.  If the allocation
+  //  is authorized, increment _old_evac_expended by request size.  This allocation ignores old_gen->available().
+  size_t _old_evac_reserve;            // Bytes reserved within old-gen to hold evacuated objects from old-gen collection set
+  volatile size_t _old_evac_expended;  // Bytes of old-gen memory expended on old-gen evacuations
+  size_t _young_evac_reserve;          // Bytes reserved within young-gen to hold evacuated objects from young-gen collection set
+  size_t _captured_old_usage;          // What was old usage (bytes) when last captured?
+  size_t _previous_promotion;          // Bytes promoted during previous evacuation
+  
+  ShenandoahAgeCensus* _age_census;    // Age census used for adapting tenuring threshold in generational mode
+
+  ShenandoahGenerationSizer _generation_sizer;
+
   ShenandoahYoungGeneration* _young_generation;
   ShenandoahOldGeneration*   _old_generation;
   
+  // ---------- VM subsystem bindings
+  //
+  MemoryPool*                  _young_gen_memory_pool;
+  MemoryPool*                  _old_gen_memory_pool;
+
+  // How many bytes to transfer between old and young after we have finished recycling collection set regions?
+  size_t _old_regions_surplus;
+  size_t _old_regions_deficit;
+
+  // ---------- Class Unloading
+  //
+  ShenandoahSharedFlag  _is_aging_cycle;
+
+
+  // ---------- Generational remembered set support
+  //
+  RememberedScanner* _card_scan;
+
   bool doing_mixed_evacuations();
   bool is_old_bitmap_stable() const;
   bool is_gc_generation_young() const;
 
-// ---------- Initialization, termination, identification, printing routines
-//
+  // ---------- Initialization, termination, identification, printing routines
+  //
 public:
+  // static ShenandoahGenerationalHeap* heap();
   static inline ShenandoahGenerationalHeap* gen_heap();
 
   const char* name()          const override { return "Shenandoah Generational"; }
   ShenandoahGenerationalHeap::Name kind() const override { return CollectedHeap::ShenandoahGenerational; }
-
-  // explicit ShenandoahGenerationalHeap(ShenandoahCollectorPolicy* policy) : ShenandoahHeap(policy) {}
-  // static ShenandoahGenerationalHeap* heap();
 
   ShenandoahGenerationalHeap(ShenandoahCollectorPolicy* policy);
 
@@ -69,6 +117,8 @@ public:
 
   ShenandoahYoungGeneration* young_generation()  const { return _young_generation;  }
   ShenandoahOldGeneration*   old_generation()    const { return _old_generation;    }
+
+  void initialize_heuristics() override;
 
   ShenandoahOldHeuristics* old_heuristics();
   ShenandoahYoungHeuristics* young_heuristics();
@@ -80,6 +130,80 @@ public:
 
   void prepare_regions_and_collection_set(bool concurrent, ShenandoahGeneration* generation);
   void prepare_regions_and_collection_set_old(bool concurrent, ShenandoahGeneration* generation);
+
+  inline RememberedScanner* card_scan() { return _card_scan; }
+  void clear_cards_for(ShenandoahHeapRegion* region);
+  void dirty_cards(HeapWord* start, HeapWord* end);
+  void clear_cards(HeapWord* start, HeapWord* end);
+  void mark_card_as_dirty(void* location);
+  void retire_plab(PLAB* plab);
+  void retire_plab(PLAB* plab, Thread* thread);
+  void cancel_old_gc();
+  bool is_old_gc_active();
+
+  void adjust_generation_sizes_for_next_cycle(size_t old_xfer_limit, size_t young_cset_regions, size_t old_cset_regions);
+
+  void set_young_lab_region_flags();           
+  
+  inline void set_old_region_surplus(size_t surplus) { _old_regions_surplus = surplus; };
+  inline void set_old_region_deficit(size_t deficit) { _old_regions_deficit = deficit; };
+
+  inline size_t get_old_region_surplus() { return _old_regions_surplus; };
+  inline size_t get_old_region_deficit() { return _old_regions_deficit; };
+  
+  inline size_t capture_old_usage(size_t usage);
+  inline void set_previous_promotion(size_t promoted_bytes);
+  inline size_t get_previous_promotion() const;
+  
+  inline void clear_promotion_potential() { _promotion_potential = 0; };
+  inline void set_promotion_potential(size_t val) { _promotion_potential = val; }; 
+  inline size_t get_promotion_potential() { return _promotion_potential; };
+  
+  inline void clear_promotion_in_place_potential() { _promotion_in_place_potential = 0; };
+  inline void set_promotion_in_place_potential(size_t val) { _promotion_in_place_potential = val; };
+  inline size_t get_promotion_in_place_potential() { return _promotion_in_place_potential; };
+  
+  inline void set_pad_for_promote_in_place(size_t pad) { _pad_for_promote_in_place = pad; }
+  inline size_t get_pad_for_promote_in_place() { return _pad_for_promote_in_place; }
+  
+  inline void reserve_promotable_humongous_regions(size_t region_count) { _promotable_humongous_regions = region_count; }
+  inline void reserve_promotable_humongous_usage(size_t bytes) { _promotable_humongous_usage = bytes; }
+  inline void reserve_promotable_regular_regions(size_t region_count) { _regular_regions_promoted_in_place = region_count; }
+  inline void reserve_promotable_regular_usage(size_t used_bytes) { _regular_usage_promoted_in_place = used_bytes; }
+  
+  inline size_t get_promotable_humongous_regions() { return _promotable_humongous_regions; }
+  inline size_t get_promotable_humongous_usage() { return _promotable_humongous_usage; }
+  inline size_t get_regular_regions_promoted_in_place() { return _regular_regions_promoted_in_place; }
+  inline size_t get_regular_usage_promoted_in_place() { return _regular_usage_promoted_in_place; }
+
+  // Returns previous value
+  inline size_t set_promoted_reserve(size_t new_val);
+  inline size_t get_promoted_reserve() const;
+  inline void augment_promo_reserve(size_t increment);
+
+  inline void reset_promoted_expended();
+  inline size_t expend_promoted(size_t increment);
+  inline size_t unexpend_promoted(size_t decrement);
+  inline size_t get_promoted_expended();
+
+  // Returns previous value
+  inline size_t set_old_evac_reserve(size_t new_val);
+  inline size_t get_old_evac_reserve() const;
+  inline void augment_old_evac_reserve(size_t increment);
+
+  inline void reset_old_evac_expended();
+  inline size_t expend_old_evac(size_t increment);
+  inline size_t get_old_evac_expended();
+
+  // Returns previous value
+  inline size_t set_young_evac_reserve(size_t new_val);
+  inline size_t get_young_evac_reserve() const;
+
+  // Return the age census object for young gen (in generational mode)
+  inline ShenandoahAgeCensus* age_census() const;
+
+  inline bool is_prepare_for_old_mark_in_progress() const;
+  inline bool is_aging_cycle() const;
 
 private:
   // Compute evacuation budgets prior to choosing collection set.

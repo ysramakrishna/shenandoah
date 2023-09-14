@@ -72,6 +72,7 @@ protected:
 
 ShenandoahGenerationalHeap::ShenandoahGenerationalHeap(ShenandoahCollectorPolicy* policy) :
   ShenandoahHeap(policy),
+  _prepare_for_old_mark(false),
   _promotion_potential(0),
   _promotion_in_place_potential(0),
   _young_generation(nullptr),
@@ -82,7 +83,7 @@ ShenandoahGenerationalHeap::ShenandoahGenerationalHeap(ShenandoahCollectorPolicy
   _captured_old_usage(0),
   _previous_promotion(0),
   _age_census(nullptr),
-  _generation_sizer(&_mmu_tracker),
+  _generation_sizer(mmu_tracker()),
   _old_generation(nullptr),
   _young_gen_memory_pool(nullptr),
   _old_gen_memory_pool(nullptr)
@@ -90,7 +91,18 @@ ShenandoahGenerationalHeap::ShenandoahGenerationalHeap(ShenandoahCollectorPolicy
   _old_regions_deficit(0),
   _card_scan(nullptr)
 {
-  // nothing yet
+  //
+  // Create the card table
+  //
+  assert(mode()->is_generational(), "Error");
+  ShenandoahDirectCardMarkRememberedSet *rs;
+  ShenandoahCardTable* card_table = ShenandoahBarrierSet::barrier_set()->card_table();
+  size_t card_count = card_table->cards_required(heap_rs.size() / HeapWordSize);
+  rs = new ShenandoahDirectCardMarkRememberedSet(ShenandoahBarrierSet::barrier_set()->card_table(), card_count);
+  _card_scan = new ShenandoahScanRemembered<ShenandoahDirectCardMarkRememberedSet>(rs);
+  
+  // Age census structure
+  _age_census = new ShenandoahAgeCensus();
 }
 
 

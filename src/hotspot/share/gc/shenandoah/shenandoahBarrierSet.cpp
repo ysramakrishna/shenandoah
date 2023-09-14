@@ -135,7 +135,7 @@ void ShenandoahBarrierSet::on_thread_detach(Thread *thread) {
     // PLAB is aligned with the start of each card's memory range.
     // TODO: Assert this in retire_plab?
     if (plab != nullptr) {
-      _heap->retire_plab(plab);
+      ((ShenandoahGenerationalHeap*)_heap)->retire_plab(plab);
     }
 
     // SATB protocol requires to keep alive reachable oops from roots at the beginning of GC
@@ -172,6 +172,6 @@ void ShenandoahBarrierSet::write_ref_array(HeapWord* start, size_t count) {
   // If compressed oops were not being used, these should already be aligned
   assert(UseCompressedOops || (aligned_start == start && aligned_end == end),
          "Expected heap word alignment of start and end");
-  _heap->card_scan()->mark_range_as_dirty(aligned_start, (aligned_end - aligned_start));
+  ((ShenandoahGenerationalHeap*)_heap)->card_scan()->mark_range_as_dirty(aligned_start, (aligned_end - aligned_start));
 }
 

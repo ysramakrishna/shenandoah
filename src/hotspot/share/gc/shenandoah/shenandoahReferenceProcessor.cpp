@@ -61,7 +61,7 @@ static const char* reference_type_name(ReferenceType type) {
 
 template <typename T>
 static void card_mark_barrier(T* field, oop value) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
   assert(heap->is_in_or_null(value), "Should be in heap");
   assert(ShenandoahCardBarrier, "Card-mark barrier should be on");
   if (heap->is_in_old(field) && heap->is_in_young(value)) {
@@ -433,9 +433,12 @@ oop ShenandoahReferenceProcessor::drop(oop reference, ReferenceType type) {
   // the cycle, we need to dirty the card if the reference is old and the referent is young.  Note
   // that if the reference is not dropped, then its pointer to the referent will be nulled before
   // evacuation begins so card does not need to be dirtied.
-  if (heap->mode()->is_generational() && heap->is_in_old(reference) && heap->is_in_young(referent)) {
-    // Note: would be sufficient to mark only the card that holds the start of this Reference object.
-    heap->card_scan()->mark_range_as_dirty(cast_from_oop<HeapWord*>(reference), reference->size());
+  if (heap->mode()->is_generational()) {
+    ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
+    if (gen_heap->is_in_old(reference) && gen_heap->is_in_young(referent)) {
+      // Note: would be sufficient to mark only the card that holds the start of this Reference object.
+      gen_heap->card_scan()->mark_range_as_dirty(cast_from_oop<HeapWord*>(reference), reference->size());
+    }
   }
   return next;
 }
@@ -455,7 +458,7 @@ T* ShenandoahReferenceProcessor::keep(oop reference, ReferenceType type, uint wo
 }
 
 template <typename T>
-void ShenandoahReferenceProcessor::process_references(ShenandoahRefProcThreadLocal& refproc_data, uint worker_id) {;
+void ShenandoahReferenceProcessor::process_references(ShenandoahRefProcThreadLocal& refproc_data, uint worker_id) {
   log_trace(gc, ref)("Processing discovered list #%u : " PTR_FORMAT, worker_id, p2i(refproc_data.discovered_list_head<T>()));
   T* list = refproc_data.discovered_list_addr<T>();
   // The list head is basically a GC root, we need to resolve and update it,

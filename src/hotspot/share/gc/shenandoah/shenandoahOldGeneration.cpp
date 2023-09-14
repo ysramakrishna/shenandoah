@@ -264,7 +264,7 @@ bool ShenandoahOldGeneration::entry_coalesce_and_fill() {
 }
 
 bool ShenandoahOldGeneration::coalesce_and_fill() {
-  ShenandoahHeap* const heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* const heap = ShenandoahGenerationalHeap::gen_heap();
   heap->set_prepare_for_old_mark_in_progress(true);
   transition_to(FILLING);
 
@@ -307,7 +307,7 @@ void ShenandoahOldGeneration::transfer_pointers_from_satb() {
 }
 
 bool ShenandoahOldGeneration::contains(oop obj) const {
-  return ShenandoahHeap::heap()->is_in_old(obj);
+  return ShenandoahGenerationalHeap::gen_heap()->is_in_old(obj);
 }
 
 const char* ShenandoahOldGeneration::state_name(State state) {
@@ -387,7 +387,7 @@ void ShenandoahOldGeneration::transition_to(State new_state) {
 //                              +-----------------+
 //
 void ShenandoahOldGeneration::validate_transition(State new_state) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
   switch (new_state) {
     case IDLE:
       // GC cancellation can send us back to IDLE from any state.

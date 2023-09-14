@@ -368,7 +368,7 @@ inline oop ShenandoahHeap::try_evacuate_object(oop p, Thread* thread, Shenandoah
              // this particular allocation to be shared.
              if (plab->words_remaining() < PLAB::min_size()) {
                ShenandoahThreadLocalData::set_plab_size(thread, PLAB::min_size());
-               copy = allocate_from_plab(thread, size, is_promotion);
+               copy = ((ShenandoahGenerationalHeap*)this)->allocate_from_plab(thread, size, is_promotion);
                // If we still get nullptr, we'll try a shared allocation below.
                if (copy == nullptr) {
                  // If retry fails, don't continue to retry until we have success (probably in next GC pass)

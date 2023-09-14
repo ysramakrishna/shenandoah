@@ -97,7 +97,8 @@ void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
     _young_region_count++;
     _young_bytes_to_evacuate += live;
     _young_available_bytes_collected += free;
-    if (ShenandoahHeap::heap()->mode()->is_generational() && r->age() >= ShenandoahHeap::heap()->age_census()->tenuring_threshold()) {
+    if (ShenandoahHeap::heap()->mode()->is_generational() &&
+        r->age() >= ShenandoahGenerationalHeap::gen_heap()->age_census()->tenuring_threshold()) {
       _young_bytes_to_promote += live;
     }
   } else if (r->is_old()) {

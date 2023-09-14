@@ -80,8 +80,8 @@ public:
   void work(uint worker_id) {
     ShenandoahParallelWorkerSession worker_session(worker_id);
     ShenandoahHeapRegion* r = _regions.next();
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
-    RememberedScanner* scanner = heap->card_scan();
+    ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+    RememberedScanner* scanner = gen_heap->card_scan();
     ShenandoahSetRememberedCardsToDirtyClosure dirty_cards_for_interesting_pointers;
 
     while (r != nullptr) {
@@ -97,11 +97,11 @@ public:
           size_t region_span = num_regions * ShenandoahHeapRegion::region_size_words();
           scanner->reset_remset(r->bottom(), region_span);
           size_t region_index = r->index();
-          ShenandoahHeapRegion* humongous_region = heap->get_region(region_index);
+          ShenandoahHeapRegion* humongous_region = gen_heap->get_region(region_index);
           while (num_regions-- != 0) {
             scanner->reset_object_range(humongous_region->bottom(), humongous_region->end());
             region_index++;
-            humongous_region = heap->get_region(region_index);
+            humongous_region = gen_heap->get_region(region_index);
           }
 
           // Then register the humongous object and DIRTY relevant remembered set cards
@@ -207,14 +207,15 @@ void ShenandoahFullGC::do_it(GCCause::Cause gc_cause) {
   heap->set_gc_generation(heap->global_generation());
 
   if (heap->mode()->is_generational()) {
+    ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
     // No need for old_gen->increase_used() as this was done when plabs were allocated.
-    heap->set_young_evac_reserve(0);
-    heap->set_old_evac_reserve(0);
-    heap->reset_old_evac_expended();
-    heap->set_promoted_reserve(0);
+    gen_heap->set_young_evac_reserve(0);
+    gen_heap->set_old_evac_reserve(0);
+    gen_heap->reset_old_evac_expended();
+    gen_heap->set_promoted_reserve(0);
 
     // Full GC supersedes any marking or coalescing in old generation.
-    heap->cancel_old_gc();
+    gen_heap->cancel_old_gc();
   }
 
   if (ShenandoahVerify) {
@@ -455,9 +456,9 @@ public:
 
 class ShenandoahPrepareForGenerationalCompactionObjectClosure : public ObjectClosure {
 private:
-  PreservedMarks*          const _preserved_marks;
-  ShenandoahHeap*          const _heap;
-  uint                           _tenuring_threshold;
+  PreservedMarks*             const _preserved_marks;
+  ShenandoahGenerationalHeap* const _heap;
+  uint                              _tenuring_threshold;
 
   // _empty_regions is a thread-local list of heap regions that have been completely emptied by this worker thread's
   // compaction efforts.  The worker thread that drives these efforts adds compacted regions to this list if the
@@ -478,7 +479,7 @@ public:
                                                           ShenandoahHeapRegion* old_to_region,
                                                           ShenandoahHeapRegion* young_to_region, uint worker_id) :
       _preserved_marks(preserved_marks),
-      _heap(ShenandoahHeap::heap()),
+      _heap(ShenandoahGenerationalHeap::gen_heap()),
       _tenuring_threshold(0),
       _empty_regions(empty_regions),
       _empty_regions_pos(0),
@@ -488,9 +489,8 @@ public:
       _old_compact_point((old_to_region != nullptr)? old_to_region->bottom(): nullptr),
       _young_compact_point((young_to_region != nullptr)? young_to_region->bottom(): nullptr),
       _worker_id(worker_id) {
-    if (_heap->mode()->is_generational()) {
-      _tenuring_threshold = _heap->age_census()->tenuring_threshold();
-    }
+    assert(_heap->mode()->is_generational(), "Danger!!");
+    _tenuring_threshold = _heap->age_census()->tenuring_threshold();
   }
 
   void set_from_region(ShenandoahHeapRegion* from_region) {

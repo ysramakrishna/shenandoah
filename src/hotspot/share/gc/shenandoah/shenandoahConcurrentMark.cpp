@@ -236,6 +236,8 @@ public:
 
 void ShenandoahConcurrentMark::concurrent_mark() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* const gen_heap = (ShenandoahGenerationalHeap*)heap;
+
   WorkerThreads* workers = heap->workers();
   uint nworkers = workers->active_workers();
   task_queues()->reserve(nworkers);
@@ -246,8 +248,8 @@ void ShenandoahConcurrentMark::concurrent_mark() {
     switch (_generation->type()) {
       case YOUNG: {
         // Clear any old/partial local census data before the start of marking.
-        heap->age_census()->reset_local();
-        assert(heap->age_census()->is_clear_local(), "Error");
+        gen_heap->age_census()->reset_local();
+        assert(gen_heap->age_census()->is_clear_local(), "Error");
         TaskTerminator terminator(nworkers, task_queues());
         ShenandoahConcurrentMarkingTask<YOUNG> task(this, &terminator);
         workers->run_task(&task);
@@ -261,8 +263,8 @@ void ShenandoahConcurrentMark::concurrent_mark() {
       }
       case GLOBAL_GEN: {
         // Clear any old/partial local census data before the start of marking.
-        heap->age_census()->reset_local();
-        assert(heap->age_census()->is_clear_local(), "Error");
+        gen_heap->age_census()->reset_local();
+        assert(gen_heap->age_census()->is_clear_local(), "Error");
         TaskTerminator terminator(nworkers, task_queues());
         ShenandoahConcurrentMarkingTask<GLOBAL_GEN> task(this, &terminator);
         workers->run_task(&task);

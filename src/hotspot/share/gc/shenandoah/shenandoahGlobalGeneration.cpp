@@ -74,7 +74,7 @@ void ShenandoahGlobalGeneration::set_concurrent_mark_in_progress(bool in_progres
     // because the global generation includes the old generation, but we
     // want the global collect to start from a clean slate and we don't want
     // any stale state in the old generation.
-    heap->cancel_old_gc();
+    ((ShenandoahGenerationalHeap*)heap)->cancel_old_gc();
   }
 
   heap->set_concurrent_young_mark_in_progress(in_progress);

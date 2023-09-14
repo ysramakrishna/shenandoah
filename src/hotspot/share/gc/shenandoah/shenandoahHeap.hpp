@@ -176,7 +176,7 @@ public:
     _gc_generation = generation;
   }
 
-  // ShenandoahHeuristics* heuristics();
+  ShenandoahHeuristics* heuristics();
 
   bool doing_mixed_evacuations();
   bool is_old_bitmap_stable() const;

@@ -54,7 +54,7 @@ ShenandoahThreadLocalData::~ShenandoahThreadLocalData() {
     delete _gclab;
   }
   if (_plab != nullptr) {
-    ShenandoahHeap::heap()->retire_plab(_plab);
+    ShenandoahGenerationalHeap::gen_heap()->retire_plab(_plab);
     delete _plab;
   }
 

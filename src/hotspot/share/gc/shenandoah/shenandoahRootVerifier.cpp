@@ -72,7 +72,7 @@ void ShenandoahRootVerifier::roots_do(OopIterateClosure* oops) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->mode()->is_generational() && heap->is_gc_generation_young()) {
     shenandoah_assert_safepoint();
-    heap->card_scan()->roots_do(oops);
+    ((ShenandoahGenerationalHeap*)heap)->card_scan()->roots_do(oops);
   }
 
   // Do thread roots the last. This allows verification code to find
@@ -94,7 +94,7 @@ void ShenandoahRootVerifier::strong_roots_do(OopIterateClosure* oops) {
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->mode()->is_generational() && heap->is_gc_generation_young()) {
-    heap->card_scan()->roots_do(oops);
+    ((ShenandoahGenerationalHeap*)heap)->card_scan()->roots_do(oops);
   }
 
   // Do thread roots the last. This allows verification code to find

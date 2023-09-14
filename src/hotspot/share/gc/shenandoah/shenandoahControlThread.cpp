@@ -232,14 +232,14 @@ void ShenandoahControlThread::run_service() {
         set_gc_mode(default_mode);
 
         // Don't start a new old marking if there is one already in progress
-        if (generation == OLD && heap->is_concurrent_old_mark_in_progress()) {
+        if (generation == OLD && gen_heap->is_concurrent_old_mark_in_progress()) {
           set_gc_mode(servicing_old);
         }
 
         if (generation == select_global_generation()) {
-          heap->set_unload_classes(global_heuristics->should_unload_classes());
+          gen_heap->set_unload_classes(global_heuristics->should_unload_classes());
         } else {
-          heap->set_unload_classes(false);
+          gen_heap->set_unload_classes(false);
         }
 
         // Don't want to spin in this loop and start a cycle every time, so
@@ -247,12 +247,12 @@ void ShenandoahControlThread::run_service() {
         // blocking 'request_gc' method, but there it loops and resets the
         // '_requested_gc_cause' until a full cycle is completed.
         _requested_gc_cause = GCCause::_no_gc;
-      } else if (heap->is_concurrent_old_mark_in_progress() || heap->is_prepare_for_old_mark_in_progress()) {
+      } else if (gen_heap->is_concurrent_old_mark_in_progress() || gen_heap->is_prepare_for_old_mark_in_progress()) {
         // Nobody asked us to do anything, but we have an old-generation mark or old-generation preparation for
         // mixed evacuation in progress, so resume working on that.
         log_info(gc)("Resume old GC: marking is%s in progress, preparing is%s in progress",
-                     heap->is_concurrent_old_mark_in_progress() ? "" : " NOT",
-                     heap->is_prepare_for_old_mark_in_progress() ? "" : " NOT");
+                     gen_heap->is_concurrent_old_mark_in_progress() ? "" : " NOT",
+                     gen_heap->is_prepare_for_old_mark_in_progress() ? "" : " NOT");
 
         cause = GCCause::_shenandoah_concurrent_gc;
         generation = OLD;
@@ -287,8 +287,8 @@ void ShenandoahControlThread::run_service() {
         heap->free_set()->log_status();
       }
       // In case this is a degenerated cycle, remember whether original cycle was aging.
-      bool was_aging_cycle = heap->is_aging_cycle();
-      heap->set_aging_cycle(false);
+      bool was_aging_cycle = gen_heap->is_aging_cycle();
+      gen_heap->set_aging_cycle(false);
 
       switch (_mode) {
         case concurrent_normal: {
@@ -298,14 +298,14 @@ void ShenandoahControlThread::run_service() {
           //  if (generation == GLOBAL), this is a GLOBAL cycle triggered by System.gc()
           // In all three cases, we want to age old objects if this is an aging cycle
           if (age_period-- == 0) {
-             heap->set_aging_cycle(true);
+             gen_heap->set_aging_cycle(true);
              age_period = ShenandoahAgingCyclePeriod - 1;
           }
           service_concurrent_normal_cycle(heap, generation, cause);
           break;
         }
         case stw_degenerated: {
-          heap->set_aging_cycle(was_aging_cycle);
+          gen_heap->set_aging_cycle(was_aging_cycle);
           if (!service_stw_degenerated_cycle(cause, degen_point)) {
             // The degenerated GC was upgraded to a Full GC
             generation = select_global_generation();
@@ -314,7 +314,7 @@ void ShenandoahControlThread::run_service() {
         }
         case stw_full: {
           if (age_period-- == 0) {
-            heap->set_aging_cycle(true);
+            gen_heap->set_aging_cycle(true);
             age_period = ShenandoahAgingCyclePeriod - 1;
           }
           service_stw_full_cycle(cause);

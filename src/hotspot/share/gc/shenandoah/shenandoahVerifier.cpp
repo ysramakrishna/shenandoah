@@ -407,11 +407,11 @@ class ShenandoahGenerationStatsClosure : public ShenandoahHeapRegionClosure {
 
   static void validate_usage(const bool adjust_for_padding,
                              const char* label, ShenandoahGeneration* generation, ShenandoahCalculateRegionStatsClosure& stats) {
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
     size_t generation_used = generation->used();
     size_t generation_used_regions = generation->used_regions();
     if (adjust_for_padding && (generation->is_young() || generation->is_global())) {
-      size_t pad = ShenandoahHeap::heap()->get_pad_for_promote_in_place();
+      size_t pad = heap->get_pad_for_promote_in_place();
       generation_used += pad;
     }
 
@@ -855,7 +855,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char* label,
     size_t heap_used;
     if (_heap->mode()->is_generational() && (sizeness == _verify_size_adjusted_for_padding)) {
       // Prior to evacuation, regular regions that are to be evacuated in place are padded to prevent further allocations
-      heap_used = _heap->used() + _heap->get_pad_for_promote_in_place();
+      heap_used = _heap->used() + ((ShenandoahGenerationalHeap*)_heap)->get_pad_for_promote_in_place();
     } else if (sizeness != _verify_size_disable) {
       heap_used = _heap->used();
     }
@@ -878,7 +878,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char* label,
 
   ShenandoahGeneration* generation;
   if (_heap->mode()->is_generational()) {
-    generation = _heap->active_generation();
+    generation = ((ShenandoahGenerationalHeap*)_heap)->active_generation();
     guarantee(generation != nullptr, "Need to know which generation to verify.");
   } else {
     generation = nullptr;
@@ -909,19 +909,20 @@ void ShenandoahVerifier::verify_at_safepoint(const char* label,
     ShenandoahGenerationStatsClosure cl;
     _heap->heap_region_iterate(&cl);
 
+    ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)_heap;
     if (LogTarget(Debug, gc)::is_enabled()) {
-      ShenandoahGenerationStatsClosure::log_usage(_heap->old_generation(),    cl.old);
-      ShenandoahGenerationStatsClosure::log_usage(_heap->young_generation(),  cl.young);
-      ShenandoahGenerationStatsClosure::log_usage(_heap->global_generation(), cl.global);
+      ShenandoahGenerationStatsClosure::log_usage(gen_heap->old_generation(),    cl.old);
+      ShenandoahGenerationStatsClosure::log_usage(gen_heap->young_generation(),  cl.young);
+      ShenandoahGenerationStatsClosure::log_usage(gen_heap->global_generation(), cl.global);
     }
     if (sizeness == _verify_size_adjusted_for_padding) {
-      ShenandoahGenerationStatsClosure::validate_usage(false, label, _heap->old_generation(), cl.old);
-      ShenandoahGenerationStatsClosure::validate_usage(true, label, _heap->young_generation(), cl.young);
-      ShenandoahGenerationStatsClosure::validate_usage(true, label, _heap->global_generation(), cl.global);
+      ShenandoahGenerationStatsClosure::validate_usage(false, label, gen_heap->old_generation(), cl.old);
+      ShenandoahGenerationStatsClosure::validate_usage(true, label, gen_heap->young_generation(), cl.young);
+      ShenandoahGenerationStatsClosure::validate_usage(true, label, gen_heap->global_generation(), cl.global);
     } else if (sizeness == _verify_size_exact) {
-      ShenandoahGenerationStatsClosure::validate_usage(false, label, _heap->old_generation(), cl.old);
-      ShenandoahGenerationStatsClosure::validate_usage(false, label, _heap->young_generation(), cl.young);
-      ShenandoahGenerationStatsClosure::validate_usage(false, label, _heap->global_generation(), cl.global);
+      ShenandoahGenerationStatsClosure::validate_usage(false, label, gen_heap->old_generation(), cl.old);
+      ShenandoahGenerationStatsClosure::validate_usage(false, label, gen_heap->young_generation(), cl.young);
+      ShenandoahGenerationStatsClosure::validate_usage(false, label, gen_heap->global_generation(), cl.global);
     }
     // else: sizeness must equal _verify_size_disable
   }
@@ -1259,14 +1260,14 @@ void ShenandoahVerifier::verify_roots_no_forwarded() {
 class ShenandoahVerifyRemSetClosure : public BasicOopIterateClosure {
 protected:
   bool               const _init_mark;
-  ShenandoahHeap*    const _heap;
+  ShenandoahGenerationalHeap* const _heap;
   RememberedScanner* const _scanner;
 
 public:
   // Argument distinguishes between initial mark or start of update refs verification.
   ShenandoahVerifyRemSetClosure(bool init_mark) :
             _init_mark(init_mark),
-            _heap(ShenandoahHeap::heap()),
+            _heap(ShenandoahGenerationalHeap::gen_heap()),
             _scanner(_heap->card_scan()) {}
 
   template<class T>
@@ -1293,7 +1294,7 @@ public:
 
 void ShenandoahVerifier::help_verify_region_rem_set(ShenandoahHeapRegion* r, ShenandoahMarkingContext* ctx, HeapWord* from,
                                                     HeapWord* top, HeapWord* registration_watermark, const char* message) {
-  RememberedScanner* scanner = _heap->card_scan();
+  RememberedScanner* scanner = ((ShenandoahGenerationalHeap*)_heap)->card_scan();
   ShenandoahVerifyRemSetClosure check_interesting_pointers(false);
 
   HeapWord* obj_addr = from;
@@ -1351,7 +1352,7 @@ void ShenandoahVerifier::verify_rem_set_before_mark() {
   assert(_heap->mode()->is_generational(), "Only verify remembered set for generational operational modes");
 
   ShenandoahRegionIterator iterator;
-  RememberedScanner* scanner = _heap->card_scan();
+  RememberedScanner* scanner = ((ShenandoahGenerationalHeap*)_heap)->card_scan();
   ShenandoahVerifyRemSetClosure check_interesting_pointers(true);
   ShenandoahMarkingContext* ctx;
 

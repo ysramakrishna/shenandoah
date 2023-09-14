@@ -42,7 +42,7 @@ ShenandoahRegulatorThread::ShenandoahRegulatorThread(ShenandoahControlThread* co
   _sleep(ShenandoahControlIntervalMin),
   _last_sleep_adjust_time(os::elapsedTime()) {
 
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
   _old_heuristics = get_heuristics(heap->old_generation());
   _young_heuristics = get_heuristics(heap->young_generation());
   _global_heuristics = get_heuristics(heap->global_generation());

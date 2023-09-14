@@ -48,7 +48,7 @@ ShenandoahOldGC::ShenandoahOldGC(ShenandoahGeneration* generation, ShenandoahSha
 // override the implementation.
 void ShenandoahOldGC::op_final_mark() {
 
-  ShenandoahGenerationalHeap* const heap = ShenandoahGenerationalHeap::heap();
+  ShenandoahGenerationalHeap* const heap = ShenandoahGenerationalHeap::gen_heap();
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should be at safepoint");
   assert(!heap->has_forwarded_objects(), "No forwarded objects on this path");
 
@@ -86,7 +86,7 @@ void ShenandoahOldGC::op_final_mark() {
 }
 
 bool ShenandoahOldGC::collect(GCCause::Cause cause) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
   assert(!heap->doing_mixed_evacuations(), "Should not start an old gc with pending mixed evacuations");
   assert(!heap->is_prepare_for_old_mark_in_progress(), "Old regions need to be parseable during concurrent mark.");
 

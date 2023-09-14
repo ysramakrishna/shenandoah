@@ -84,10 +84,10 @@ class ShenandoahResetBitmapTask : public ShenandoahHeapRegionClosure {
 
 class ShenandoahMergeWriteTable: public ShenandoahHeapRegionClosure {
  private:
-  ShenandoahHeap* _heap;
+  ShenandoahGenerationalHeap* _heap;
   RememberedScanner* _scanner;
  public:
-  ShenandoahMergeWriteTable() : _heap(ShenandoahHeap::heap()), _scanner(_heap->card_scan()) {}
+  ShenandoahMergeWriteTable() : _heap(ShenandoahGenerationalHeap::gen_heap()), _scanner(_heap->card_scan()) {}
 
   virtual void heap_region_do(ShenandoahHeapRegion* r) override {
     if (r->is_old()) {
@@ -102,12 +102,12 @@ class ShenandoahMergeWriteTable: public ShenandoahHeapRegionClosure {
 
 class ShenandoahSquirrelAwayCardTable: public ShenandoahHeapRegionClosure {
  private:
-  ShenandoahHeap* _heap;
+  ShenandoahGenerationalHeap* _gen_heap;
   RememberedScanner* _scanner;
  public:
   ShenandoahSquirrelAwayCardTable() :
-    _heap(ShenandoahHeap::heap()),
-    _scanner(_heap->card_scan()) {}
+    _gen_heap(ShenandoahGenerationalHeap::gen_heap()),
+    _scanner(_gen_heap->card_scan()) {}
 
   void heap_region_do(ShenandoahHeapRegion* region) {
     if (region->is_old()) {
@@ -317,18 +317,18 @@ ShenandoahObjToScanQueueSet* ShenandoahGeneration::old_gen_task_queues() const {
 void ShenandoahGeneration::scan_remembered_set(bool is_concurrent) {
   assert(is_young(), "Should only scan remembered set for young generation.");
 
-  ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  uint nworkers = heap->workers()->active_workers();
+  ShenandoahGenerationalHeap* const gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  uint nworkers = gen_heap->workers()->active_workers();
   reserve_task_queues(nworkers);
 
   ShenandoahReferenceProcessor* rp = ref_processor();
   ShenandoahRegionChunkIterator work_list(nworkers);
   ShenandoahScanRememberedTask task(task_queues(), old_gen_task_queues(), rp, &work_list, is_concurrent);
-  heap->assert_gc_workers(nworkers);
-  heap->workers()->run_task(&task);
+  gen_heap->assert_gc_workers(nworkers);
+  gen_heap->workers()->run_task(&task);
   if (ShenandoahEnableCardStats) {
-    assert(heap->card_scan() != nullptr, "Not generational");
-    heap->card_scan()->log_card_stats(nworkers, CARD_STAT_SCAN_RS);
+    assert(gen_heap->card_scan() != nullptr, "Not generational");
+    gen_heap->card_scan()->log_card_stats(nworkers, CARD_STAT_SCAN_RS);
   }
 }
 

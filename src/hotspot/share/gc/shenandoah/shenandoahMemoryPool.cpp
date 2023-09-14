@@ -75,7 +75,7 @@ size_t ShenandoahMemoryPool::max_size() const {
   return _heap->max_capacity();
 }
 
-ShenandoahYoungGenMemoryPool::ShenandoahYoungGenMemoryPool(ShenandoahHeap* heap) :
+ShenandoahYoungGenMemoryPool::ShenandoahYoungGenMemoryPool(ShenandoahGenerationalHeap* heap) :
         ShenandoahMemoryPool(heap,
                              "Shenandoah Young Gen",
                              0,
@@ -85,20 +85,20 @@ MemoryUsage ShenandoahYoungGenMemoryPool::get_memory_usage() {
   size_t initial   = initial_size();
   size_t max       = max_size();
   size_t used      = used_in_bytes();
-  size_t committed = _heap->young_generation()->used_regions_size();
+  size_t committed = ((ShenandoahGenerationalHeap*)_heap)->young_generation()->used_regions_size();
 
   return MemoryUsage(initial, used, committed, max);
 }
 
 size_t ShenandoahYoungGenMemoryPool::used_in_bytes() {
-  return _heap->young_generation()->used();
+  return ((ShenandoahGenerationalHeap*)_heap)->young_generation()->used();
 }
 
 size_t ShenandoahYoungGenMemoryPool::max_size() const {
-  return _heap->young_generation()->max_capacity();
+  return ((ShenandoahGenerationalHeap*)_heap)->young_generation()->max_capacity();
 }
 
-ShenandoahOldGenMemoryPool::ShenandoahOldGenMemoryPool(ShenandoahHeap* heap) :
+ShenandoahOldGenMemoryPool::ShenandoahOldGenMemoryPool(ShenandoahGenerationalHeap* heap) :
         ShenandoahMemoryPool(heap,
                              "Shenandoah Old Gen",
                              0,
@@ -108,15 +108,15 @@ MemoryUsage ShenandoahOldGenMemoryPool::get_memory_usage() {
   size_t initial   = initial_size();
   size_t max       = max_size();
   size_t used      = used_in_bytes();
-  size_t committed = _heap->old_generation()->used_regions_size();
+  size_t committed = ((ShenandoahGenerationalHeap*)_heap)->old_generation()->used_regions_size();
 
   return MemoryUsage(initial, used, committed, max);
 }
 
 size_t ShenandoahOldGenMemoryPool::used_in_bytes() {
-  return _heap->old_generation()->used();
+  return ((ShenandoahGenerationalHeap*)_heap)->old_generation()->used();
 }
 
 size_t ShenandoahOldGenMemoryPool::max_size() const {
-  return _heap->old_generation()->max_capacity();
+  return ((ShenandoahGenerationalHeap*)_heap)->old_generation()->max_capacity();
 }

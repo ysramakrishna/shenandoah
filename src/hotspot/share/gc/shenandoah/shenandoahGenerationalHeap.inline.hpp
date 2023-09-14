@@ -28,6 +28,8 @@
 #include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 
 #include "gc/shenandoah/mode/shenandoahMode.hpp"
+#include "gc/shenandoah/shenandoahThreadLocalData.hpp"
+#include "gc/shared/tlab_globals.hpp"
 
 inline ShenandoahGenerationalHeap* ShenandoahGenerationalHeap::gen_heap() {
   return named_heap<ShenandoahGenerationalHeap>(CollectedHeap::Shenandoah);

@@ -638,6 +638,7 @@ void ShenandoahConcurrentGC::op_init_mark() {
 
 
   if (heap->mode()->is_generational()) {
+    ShenandoahGenerationalHeap* const gen_heap = (ShenandoahGenerationalHeap*)heap;
     if (_generation->is_young() || (_generation->is_global() && ShenandoahVerify)) {
       // The current implementation of swap_remembered_set() copies the write-card-table
       // to the read-card-table. The remembered sets are also swapped for GLOBAL collections
@@ -648,13 +649,13 @@ void ShenandoahConcurrentGC::op_init_mark() {
     }
 
     if (_generation->is_global()) {
-      heap->cancel_old_gc();
+      gen_heap->cancel_old_gc();
     } else if (heap->is_concurrent_old_mark_in_progress()) {
       // Purge the SATB buffers, transferring any valid, old pointers to the
       // old generation mark queue. Any pointers in a young region will be
       // abandoned.
       ShenandoahGCPhase phase(ShenandoahPhaseTimings::init_transfer_satb);
-      heap->transfer_old_pointers_from_satb();
+      gen_heap->transfer_old_pointers_from_satb();
     }
   }
 
@@ -762,9 +763,11 @@ void ShenandoahConcurrentGC::op_final_mark() {
     heap->prepare_concurrent_roots();
 
     if (heap->mode()->is_generational()) {
-      size_t humongous_regions_promoted = heap->get_promotable_humongous_regions();
-      size_t regular_regions_promoted_in_place = heap->get_regular_regions_promoted_in_place();
-      if (!heap->collection_set()->is_empty() || (humongous_regions_promoted + regular_regions_promoted_in_place > 0)) {
+      
+      ShenandoahGenerationalHeap* const gen_heap = (ShenandoahGenerationalHeap*)heap;
+      size_t humongous_regions_promoted = gen_heap->get_promotable_humongous_regions();
+      size_t regular_regions_promoted_in_place = gen_heap->get_regular_regions_promoted_in_place();
+      if (!gen_heap->collection_set()->is_empty() || (humongous_regions_promoted + regular_regions_promoted_in_place > 0)) {
         // Even if the collection set is empty, we need to do evacuation if there are regions to be promoted in place.
         // Concurrent evacuation takes responsibility for registering objects and setting the remembered set cards to dirty.
 
@@ -772,28 +775,28 @@ void ShenandoahConcurrentGC::op_final_mark() {
         if (lt.is_enabled()) {
           ResourceMark rm;
           LogStream ls(lt);
-          heap->collection_set()->print_on(&ls);
+          gen_heap->collection_set()->print_on(&ls);
         }
 
         if (ShenandoahVerify) {
-          heap->verifier()->verify_before_evacuation();
+          gen_heap->verifier()->verify_before_evacuation();
         }
 
-        heap->set_evacuation_in_progress(true);
+        gen_heap->set_evacuation_in_progress(true);
 
         // Verify before arming for concurrent processing.
         // Otherwise, verification can trigger stack processing.
         if (ShenandoahVerify) {
-          heap->verifier()->verify_during_evacuation();
+          gen_heap->verifier()->verify_during_evacuation();
         }
 
         // Generational mode may promote objects in place during the evacuation phase.
         // If that is the only reason we are evacuating, we don't need to update references
         // and there will be no forwarded objects on the heap.
-        heap->set_has_forwarded_objects(!heap->collection_set()->is_empty());
+        gen_heap->set_has_forwarded_objects(!heap->collection_set()->is_empty());
 
         // Arm nmethods/stack for concurrent processing
-        if (!heap->collection_set()->is_empty()) {
+        if (!gen_heap->collection_set()->is_empty()) {
           // Iff objects will be evaluated, arm the nmethod barriers. These will be disarmed
           // under the same condition (established in prepare_concurrent_roots) after strong
           // root evacuation has completed (see op_strong_roots).
@@ -802,11 +805,11 @@ void ShenandoahConcurrentGC::op_final_mark() {
         }
 
         if (ShenandoahPacing) {
-          heap->pacer()->setup_for_evac();
+          gen_heap->pacer()->setup_for_evac();
         }
       } else {
         if (ShenandoahVerify) {
-          heap->verifier()->verify_after_concmark();
+          gen_heap->verifier()->verify_after_concmark();
         }
 
         if (VerifyAfterGC) {
@@ -1277,15 +1280,16 @@ void ShenandoahConcurrentGC::op_final_roots() {
 
   if (heap->mode()->is_generational()) {
     ShenandoahMarkingContext *ctx = heap->complete_marking_context();
+    ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
 
-    for (size_t i = 0; i < heap->num_regions(); i++) {
-      ShenandoahHeapRegion *r = heap->get_region(i);
+    for (size_t i = 0; i < gen_heap->num_regions(); i++) {
+      ShenandoahHeapRegion *r = gen_heap->get_region(i);
       if (r->is_active() && r->is_young()) {
         HeapWord* tams = ctx->top_at_mark_start(r);
         HeapWord* top = r->top();
         if (top > tams) {
           r->reset_age();
-        } else if (heap->is_aging_cycle()) {
+        } else if (gen_heap->is_aging_cycle()) {
           r->increment_age();
         }
       }

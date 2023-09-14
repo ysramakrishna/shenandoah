@@ -104,7 +104,9 @@ private:
 
   // ---------- Allocation, including promotion local allocation buffers
   //
+public: // TODO: fix
   inline HeapWord* allocate_from_plab(Thread* thread, size_t size, bool is_promotion);
+private:
   HeapWord* allocate_from_plab_slow(Thread* thread, size_t size, bool is_promotion);
   HeapWord* allocate_new_plab(size_t min_size, size_t word_size, size_t* actual_size);
   

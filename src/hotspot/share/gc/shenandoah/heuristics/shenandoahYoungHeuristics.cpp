@@ -79,7 +79,7 @@ void ShenandoahYoungHeuristics::choose_young_collection_set(ShenandoahCollection
                                                             size_t size, size_t actual_free,
                                                             size_t cur_young_garbage) const {
 
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
 
   size_t capacity = heap->young_generation()->max_capacity();
   size_t garbage_threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
@@ -134,7 +134,7 @@ bool ShenandoahYoungHeuristics::should_start_gc() {
   // for the reality that old-gen and young-gen activities are not truly "concurrent".  If there is old-gen work to
   // be done, we start up the young-gen GC threads so they can do some of this old-gen work.  As implemented, promotion
   // gets priority over old-gen marking.
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
   size_t promo_potential = heap->get_promotion_potential();
   if (promo_potential > 0) {
     // Detect unsigned arithmetic underflow

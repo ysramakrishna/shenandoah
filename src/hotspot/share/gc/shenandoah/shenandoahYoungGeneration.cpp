@@ -38,7 +38,7 @@ ShenandoahYoungGeneration::ShenandoahYoungGeneration(uint max_queues, size_t max
 }
 
 void ShenandoahYoungGeneration::set_concurrent_mark_in_progress(bool in_progress) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
   heap->set_concurrent_young_mark_in_progress(in_progress);
   if (is_bootstrap_cycle() && in_progress && !heap->is_prepare_for_old_mark_in_progress()) {
     // This is not a bug. When the bootstrapping marking phase is complete,
@@ -66,7 +66,7 @@ void ShenandoahYoungGeneration::heap_region_iterate(ShenandoahHeapRegionClosure*
 }
 
 bool ShenandoahYoungGeneration::is_concurrent_mark_in_progress() {
-  return ShenandoahHeap::heap()->is_concurrent_young_mark_in_progress();
+  return ShenandoahGenerationalHeap::gen_heap()->is_concurrent_young_mark_in_progress();
 }
 
 void ShenandoahYoungGeneration::reserve_task_queues(uint workers) {
@@ -77,7 +77,7 @@ void ShenandoahYoungGeneration::reserve_task_queues(uint workers) {
 }
 
 bool ShenandoahYoungGeneration::contains(oop obj) const {
-  return ShenandoahHeap::heap()->is_in_young(obj);
+  return ShenandoahGenerationalHeap::gen_heap()->is_in_young(obj);
 }
 
 ShenandoahHeuristics* ShenandoahYoungGeneration::initialize_heuristics(ShenandoahMode* gc_mode) {

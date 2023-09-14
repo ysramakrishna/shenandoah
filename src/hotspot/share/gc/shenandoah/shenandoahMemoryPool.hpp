@@ -52,7 +52,7 @@ protected:
 
 class ShenandoahYoungGenMemoryPool : public ShenandoahMemoryPool {
 public:
-  ShenandoahYoungGenMemoryPool(ShenandoahHeap* pool);
+  ShenandoahYoungGenMemoryPool(ShenandoahGenerationalHeap* pool);
   MemoryUsage get_memory_usage() override;
   size_t used_in_bytes() override;
   size_t max_size() const override;
@@ -60,7 +60,7 @@ public:
 
 class ShenandoahOldGenMemoryPool : public ShenandoahMemoryPool {
 public:
-  ShenandoahOldGenMemoryPool(ShenandoahHeap* pool);
+  ShenandoahOldGenMemoryPool(ShenandoahGenerationalHeap* pool);
   MemoryUsage get_memory_usage() override;
   size_t used_in_bytes() override;
   size_t max_size() const override;

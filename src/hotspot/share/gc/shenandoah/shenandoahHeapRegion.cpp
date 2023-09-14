@@ -130,10 +130,10 @@ void ShenandoahHeapRegion::make_young_maybe() {
    case _humongous_cont:
      if (affiliation() != YOUNG_GENERATION) {
        if (is_old()) {
-         ShenandoahHeap::heap()->old_generation()->decrement_affiliated_region_count();
+         ShenandoahGenerationalHeap::gen_heap()->old_generation()->decrement_affiliated_region_count();
        }
        set_affiliation(YOUNG_GENERATION);
-       ShenandoahHeap::heap()->young_generation()->increment_affiliated_region_count();
+       ShenandoahGenerationalHeap::gen_heap()->young_generation()->increment_affiliated_region_count();
      }
      return;
    case _pinned_cset:
@@ -463,8 +463,8 @@ bool ShenandoahHeapRegion::oop_fill_and_coalesce_without_cancel() {
     return true;
   }
 
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahMarkingContext* marking_context = heap->marking_context();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  ShenandoahMarkingContext* marking_context = gen_heap->marking_context();
   // All objects above TAMS are considered live even though their mark bits will not be set.  Note that young-
   // gen evacuations that interrupt a long-running old-gen concurrent mark may promote objects into old-gen
   // while the old-gen concurrent marking is ongoing.  These newly promoted objects will reside above TAMS
@@ -473,7 +473,7 @@ bool ShenandoahHeapRegion::oop_fill_and_coalesce_without_cancel() {
   HeapWord* t = marking_context->top_at_mark_start(this);
 
   // Expect marking to be completed before these threads invoke this service.
-  assert(heap->active_generation()->is_mark_complete(), "sanity");
+  assert(gen_heap->active_generation()->is_mark_complete(), "sanity");
   while (obj_addr < t) {
     oop obj = cast_to_oop(obj_addr);
     if (marking_context->is_marked(obj)) {
@@ -486,7 +486,7 @@ bool ShenandoahHeapRegion::oop_fill_and_coalesce_without_cancel() {
       size_t fill_size = next_marked_obj - obj_addr;
       assert(fill_size >= ShenandoahHeap::min_fill_size(), "previously allocated objects known to be larger than min_size");
       ShenandoahHeap::fill_with_object(obj_addr, fill_size);
-      heap->card_scan()->coalesce_objects(obj_addr, fill_size);
+      gen_heap->card_scan()->coalesce_objects(obj_addr, fill_size);
       obj_addr = next_marked_obj;
     }
   }
@@ -507,8 +507,8 @@ bool ShenandoahHeapRegion::oop_fill_and_coalesce() {
     return true;
   }
 
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahMarkingContext* marking_context = heap->marking_context();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  ShenandoahMarkingContext* marking_context = gen_heap->marking_context();
   // All objects above TAMS are considered live even though their mark bits will not be set.  Note that young-
   // gen evacuations that interrupt a long-running old-gen concurrent mark may promote objects into old-gen
   // while the old-gen concurrent marking is ongoing.  These newly promoted objects will reside above TAMS
@@ -517,7 +517,7 @@ bool ShenandoahHeapRegion::oop_fill_and_coalesce() {
   HeapWord* t = marking_context->top_at_mark_start(this);
 
   // Expect marking to be completed before these threads invoke this service.
-  assert(heap->active_generation()->is_mark_complete(), "sanity");
+  assert(gen_heap->active_generation()->is_mark_complete(), "sanity");
 
   size_t ops_before_preempt_check = preemption_stride;
   while (obj_addr < t) {
@@ -532,11 +532,11 @@ bool ShenandoahHeapRegion::oop_fill_and_coalesce() {
       size_t fill_size = next_marked_obj - obj_addr;
       assert(fill_size >= ShenandoahHeap::min_fill_size(), "previously allocated object known to be larger than min_size");
       ShenandoahHeap::fill_with_object(obj_addr, fill_size);
-      heap->card_scan()->coalesce_objects(obj_addr, fill_size);
+      gen_heap->card_scan()->coalesce_objects(obj_addr, fill_size);
       obj_addr = next_marked_obj;
     }
     if (ops_before_preempt_check-- == 0) {
-      if (heap->cancelled_gc()) {
+      if (gen_heap->cancelled_gc()) {
         suspend_coalesce_and_fill(obj_addr);
         return false;
       }
@@ -563,13 +563,13 @@ void ShenandoahHeapRegion::global_oop_iterate_objects_and_fill_dead(OopIterateCl
   assert(!is_humongous(), "no humongous region here");
   HeapWord* obj_addr = bottom();
 
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahMarkingContext* marking_context = heap->marking_context();
-  RememberedScanner* rem_set_scanner = heap->card_scan();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  ShenandoahMarkingContext* marking_context = gen_heap->marking_context();
+  RememberedScanner* rem_set_scanner = gen_heap->card_scan();
   // Objects allocated above TAMS are not marked, but are considered live for purposes of current GC efforts.
   HeapWord* t = marking_context->top_at_mark_start(this);
 
-  assert(heap->active_generation()->is_mark_complete(), "sanity");
+  assert(gen_heap->active_generation()->is_mark_complete(), "sanity");
 
   while (obj_addr < t) {
     oop obj = cast_to_oop(obj_addr);
@@ -604,7 +604,7 @@ void ShenandoahHeapRegion::oop_iterate_humongous_slice(OopIterateClosure* blk, b
                                                        HeapWord* start, size_t words, bool write_table) {
   assert(words % CardTable::card_size_in_words() == 0, "Humongous iteration must span whole number of cards");
   assert(is_humongous(), "only humongous region here");
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
 
   // Find head.
   ShenandoahHeapRegion* r = humongous_start_region();
@@ -613,7 +613,7 @@ void ShenandoahHeapRegion::oop_iterate_humongous_slice(OopIterateClosure* blk, b
          "slice must be integral number of cards");
 
   oop obj = cast_to_oop(r->bottom());
-  RememberedScanner* scanner = ShenandoahHeap::heap()->card_scan();
+  RememberedScanner* scanner = gen_heap->card_scan();
   size_t card_index = scanner->card_index_for_addr(start);
   size_t num_cards = words / CardTable::card_size_in_words();
 
@@ -1003,16 +1003,16 @@ void ShenandoahHeapRegion::set_affiliation(ShenandoahAffiliation new_affiliation
 // We identify the entirety of the region as DIRTY to force the next remembered set scan to identify the "interesting poitners"
 // contained herein.
 void ShenandoahHeapRegion::promote_in_place() {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahMarkingContext* marking_context = heap->marking_context();
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  ShenandoahMarkingContext* marking_context = gen_heap->marking_context();
   HeapWord* tams = marking_context->top_at_mark_start(this);
-  assert(heap->active_generation()->is_mark_complete(), "sanity");
+  assert(gen_heap->active_generation()->is_mark_complete(), "sanity");
   assert(is_young(), "Only young regions can be promoted");
   assert(is_regular(), "Use different service to promote humongous regions");
-  assert(age() >= heap->age_census()->tenuring_threshold(), "Only promote regions that are sufficiently aged");
+  assert(age() >= gen_heap->age_census()->tenuring_threshold(), "Only promote regions that are sufficiently aged");
 
-  ShenandoahOldGeneration* old_gen = heap->old_generation();
-  ShenandoahYoungGeneration* young_gen = heap->young_generation();
+  ShenandoahOldGeneration* old_gen = gen_heap->old_generation();
+  ShenandoahYoungGeneration* young_gen = gen_heap->young_generation();
   size_t region_size_bytes = ShenandoahHeapRegion::region_size_bytes();
 
   assert(get_top_before_promote() == tams, "Cannot promote regions in place if top has advanced beyond TAMS");
@@ -1024,8 +1024,9 @@ void ShenandoahHeapRegion::promote_in_place() {
   //
   // Rebuilding the remembered set consists of clearing all object registrations (reset_object_range()) here,
   // then registering every live object and every coalesced range of free objects in the loop that follows.
-  heap->card_scan()->reset_object_range(bottom(), end());
-  heap->card_scan()->mark_range_as_dirty(bottom(), get_top_before_promote() - bottom());
+  RememberedScanner* rs = gen_heap->card_scan();
+  rs->reset_object_range(bottom(), end());
+  rs->mark_range_as_dirty(bottom(), get_top_before_promote() - bottom());
 
   // TODO: use an existing coalesce-and-fill function rather than replicating the code here.
   HeapWord* obj_addr = bottom();
@@ -1034,7 +1035,7 @@ void ShenandoahHeapRegion::promote_in_place() {
     if (marking_context->is_marked(obj)) {
       assert(obj->klass() != NULL, "klass should not be NULL");
       // This thread is responsible for registering all objects in this region.  No need for lock.
-      heap->card_scan()->register_object_without_lock(obj_addr);
+      rs->register_object_without_lock(obj_addr);
       obj_addr += obj->size();
     } else {
       HeapWord* next_marked_obj = marking_context->get_next_marked_addr(obj_addr, tams);
@@ -1042,7 +1043,7 @@ void ShenandoahHeapRegion::promote_in_place() {
       size_t fill_size = next_marked_obj - obj_addr;
       assert(fill_size >= ShenandoahHeap::min_fill_size(), "previously allocated objects known to be larger than min_size");
       ShenandoahHeap::fill_with_object(obj_addr, fill_size);
-      heap->card_scan()->register_object_without_lock(obj_addr);
+      rs->register_object_without_lock(obj_addr);
       obj_addr = next_marked_obj;
     }
   }
@@ -1050,7 +1051,7 @@ void ShenandoahHeapRegion::promote_in_place() {
   assert(obj_addr == tams, "Expect loop to terminate when obj_addr equals tams");
 
   {
-    ShenandoahHeapLocker locker(heap->lock());
+    ShenandoahHeapLocker locker(gen_heap->lock());
 
     HeapWord* update_watermark = get_update_watermark();
 
@@ -1076,27 +1077,27 @@ void ShenandoahHeapRegion::promote_in_place() {
     young_gen->decrement_affiliated_region_count();
 
     // transfer_to_old() increases capacity of old and decreases capacity of young
-    heap->generation_sizer()->force_transfer_to_old(1);
+    gen_heap->generation_sizer()->force_transfer_to_old(1);
     set_affiliation(OLD_GENERATION);
 
     old_gen->increment_affiliated_region_count();
     old_gen->increase_used(region_used);
 
     // add_old_collector_free_region() increases promoted_reserve() if available space exceeds PLAB::min_size()
-    heap->free_set()->add_old_collector_free_region(this);
+    gen_heap->free_set()->add_old_collector_free_region(this);
   }
 }
 
 void ShenandoahHeapRegion::promote_humongous() {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahMarkingContext* marking_context = heap->marking_context();
-  assert(heap->active_generation()->is_mark_complete(), "sanity");
+  ShenandoahGenerationalHeap* gen_heap = ShenandoahGenerationalHeap::gen_heap();
+  ShenandoahMarkingContext* marking_context = gen_heap->marking_context();
+  assert(gen_heap->active_generation()->is_mark_complete(), "sanity");
   assert(is_young(), "Only young regions can be promoted");
   assert(is_humongous_start(), "Should not promote humongous continuation in isolation");
-  assert(age() >= heap->age_census()->tenuring_threshold(), "Only promote regions that are sufficiently aged");
+  assert(age() >= gen_heap->age_census()->tenuring_threshold(), "Only promote regions that are sufficiently aged");
 
-  ShenandoahGeneration* old_generation = heap->old_generation();
-  ShenandoahGeneration* young_generation = heap->young_generation();
+  ShenandoahGeneration* old_generation = gen_heap->old_generation();
+  ShenandoahGeneration* young_generation = gen_heap->young_generation();
 
   oop obj = cast_to_oop(bottom());
   assert(marking_context->is_marked(obj), "promoted humongous object should be alive");
@@ -1114,7 +1115,7 @@ void ShenandoahHeapRegion::promote_humongous() {
   {
     // We need to grab the heap lock in order to avoid a race when changing the affiliations of spanned_regions from
     // young to old.
-    ShenandoahHeapLocker locker(heap->lock());
+    ShenandoahHeapLocker locker(gen_heap->lock());
 
     // We promote humongous objects unconditionally, without checking for availability.  We adjust
     // usage totals, including humongous waste, after evacuation is done.
@@ -1125,13 +1126,13 @@ void ShenandoahHeapRegion::promote_humongous() {
     young_generation->decrease_affiliated_region_count(spanned_regions);
 
     // transfer_to_old() increases capacity of old and decreases capacity of young
-    heap->generation_sizer()->force_transfer_to_old(spanned_regions);
+    gen_heap->generation_sizer()->force_transfer_to_old(spanned_regions);
 
     // For this region and each humongous continuation region spanned by this humongous object, change
     // affiliation to OLD_GENERATION and adjust the generation-use tallies.  The remnant of memory
     // in the last humongous region that is not spanned by obj is currently not used.
     for (size_t i = index(); i < index_limit; i++) {
-      ShenandoahHeapRegion* r = heap->get_region(i);
+      ShenandoahHeapRegion* r = gen_heap->get_region(i);
       log_debug(gc)("promoting humongous region " SIZE_FORMAT ", from " PTR_FORMAT " to " PTR_FORMAT,
                     r->index(), p2i(r->bottom()), p2i(r->top()));
       // We mark the entire humongous object's range as dirty after loop terminates, so no need to dirty the range here
@@ -1144,19 +1145,19 @@ void ShenandoahHeapRegion::promote_humongous() {
   }
 
   // Since this region may have served previously as OLD, it may hold obsolete object range info.
-  heap->card_scan()->reset_object_range(bottom(), bottom() + spanned_regions * ShenandoahHeapRegion::region_size_words());
+  gen_heap->card_scan()->reset_object_range(bottom(), bottom() + spanned_regions * ShenandoahHeapRegion::region_size_words());
   // Since the humongous region holds only one object, no lock is necessary for this register_object() invocation.
-  heap->card_scan()->register_object_without_lock(bottom());
+  gen_heap->card_scan()->register_object_without_lock(bottom());
 
   if (obj->is_typeArray()) {
     // Primitive arrays don't need to be scanned.
     log_debug(gc)("Clean cards for promoted humongous object (Region " SIZE_FORMAT ") from " PTR_FORMAT " to " PTR_FORMAT,
                   index(), p2i(bottom()), p2i(bottom() + obj->size()));
-    heap->card_scan()->mark_range_as_clean(bottom(), obj->size());
+    gen_heap->card_scan()->mark_range_as_clean(bottom(), obj->size());
   } else {
     log_debug(gc)("Dirty cards for promoted humongous object (Region " SIZE_FORMAT ") from " PTR_FORMAT " to " PTR_FORMAT,
                   index(), p2i(bottom()), p2i(bottom() + obj->size()));
-    heap->card_scan()->mark_range_as_dirty(bottom(), obj->size());
+    gen_heap->card_scan()->mark_range_as_dirty(bottom(), obj->size());
   }
 }
 

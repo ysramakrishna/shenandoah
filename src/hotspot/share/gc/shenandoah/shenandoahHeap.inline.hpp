@@ -407,12 +407,12 @@ inline oop ShenandoahHeap::try_evacuate_object(oop p, Thread* thread, Shenandoah
       assert(mode()->is_generational(), "Should only be here in generational mode.");
       if (from_region->is_young()) {
         // Signal that promotion failed. Will evacuate this old object somewhere in young gen.
-        report_promotion_failure(thread, size);
+        ((ShenandoahGenerationalHeap*)this)->report_promotion_failure(thread, size);
         return nullptr;
       } else {
         // Remember that evacuation to old gen failed. We'll want to trigger a full gc to recover from this
         // after the evacuation threads have finished.
-        handle_old_evacuation_failure();
+        ((ShenandoahGenerationalHeap*)this)->handle_old_evacuation_failure();
       }
     }
 
@@ -442,7 +442,7 @@ inline oop ShenandoahHeap::try_evacuate_object(oop p, Thread* thread, Shenandoah
     _evac_tracker->end_evacuation(thread, size * HeapWordSize);
     if (mode()->is_generational()) {
       if (target_gen == OLD_GENERATION) {
-        handle_old_evacuation(copy, size, from_region->is_young());
+        ((ShenandoahGenerationalHeap*)this)->handle_old_evacuation(copy, size, from_region->is_young());
       } else {
         // When copying to the old generation above, we don't care
         // about recording object age in the census stats.
@@ -531,10 +531,6 @@ uint ShenandoahHeap::get_object_age_concurrent(oop obj) {
   }
   assert(w.age() <= markWord::max_age, "Impossible!");
   return w.age();
-}
-
-inline bool ShenandoahHeap::clear_old_evacuation_failure() {
-  return _old_gen_oom_evac.try_unset();
 }
 
 bool ShenandoahHeap::is_in(const void* p) const {

@@ -589,13 +589,13 @@ void ShenandoahScanRemembered<RememberedSet>::process_clusters(size_t first_clus
   // old generation objects. We'll only scan objects that are marked live by
   // the old generation marking. These include objects allocated since the
   // start of old generation marking (being those above TAMS).
-  const ShenandoahHeap* heap = ShenandoahHeap::heap();
+  const ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
   const ShenandoahMarkingContext* ctx = heap->is_old_bitmap_stable() ?
                                         heap->marking_context() : nullptr;
 
   // The region we will scan is the half-open interval [start_addr, end_addr),
   // and lies entirely within a single region.
-  const ShenandoahHeapRegion* region = ShenandoahHeap::heap()->heap_region_containing(start_addr);
+  const ShenandoahHeapRegion* region = heap->heap_region_containing(start_addr);
   assert(region->contains(end_addr - 1), "Slice shouldn't cross regions");
 
   // This code may have implicit assumptions of examining only old gen regions.

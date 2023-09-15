@@ -174,6 +174,10 @@ inline size_t ShenandoahGenerationalHeap::get_young_evac_reserve() const {
   return _young_evac_reserve;
 }
 
+inline bool ShenandoahGenerationalHeap::clear_old_evacuation_failure() {
+  return _old_gen_oom_evac.try_unset();
+}
+
 inline void ShenandoahGenerationalHeap::clear_cards_for(ShenandoahHeapRegion* region) {
   assert(mode()->is_generational(), "Error");
   _card_scan->mark_range_as_empty(region->bottom(), pointer_delta(region->end(), region->bottom()));

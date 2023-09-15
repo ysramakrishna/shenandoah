@@ -158,7 +158,7 @@ void ShenandoahControlThread::run_service() {
 
       ShenandoahHeuristics* heuristics = _degen_generation->heuristics();
       generation = _degen_generation->type();
-      bool old_gen_evacuation_failed = heap->clear_old_evacuation_failure();
+      bool old_gen_evacuation_failed = gen_heap->clear_old_evacuation_failure();
 
       // Do not bother with degenerated cycle if old generation evacuation failed
       if (ShenandoahDegeneratedGC && heuristics->should_degenerate_cycle() && !old_gen_evacuation_failed) {
@@ -208,7 +208,7 @@ void ShenandoahControlThread::run_service() {
       // We should only be here if the regulator requested a cycle or if
       // there is an old generation mark in progress.
       if (_requested_gc_cause == GCCause::_shenandoah_concurrent_gc) {
-        if (_requested_generation == OLD && heap->doing_mixed_evacuations()) {
+        if (_requested_generation == OLD && gen_heap->doing_mixed_evacuations()) {
           // If a request to start an old cycle arrived while an old cycle was running, but _before_
           // it chose any regions for evacuation we don't want to start a new old cycle. Rather, we want
           // the heuristic to run a young collection so that we can evacuate some old regions.

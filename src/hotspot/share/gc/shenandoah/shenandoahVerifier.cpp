@@ -1351,15 +1351,16 @@ void ShenandoahVerifier::verify_rem_set_before_mark() {
   shenandoah_assert_safepoint();
   assert(_heap->mode()->is_generational(), "Only verify remembered set for generational operational modes");
 
+  ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)_heap;
   ShenandoahRegionIterator iterator;
-  RememberedScanner* scanner = ((ShenandoahGenerationalHeap*)_heap)->card_scan();
+  RememberedScanner* scanner = gen_heap->card_scan();
   ShenandoahVerifyRemSetClosure check_interesting_pointers(true);
   ShenandoahMarkingContext* ctx;
 
-  log_debug(gc)("Verifying remembered set at %s mark", _heap->doing_mixed_evacuations()? "mixed": "young");
+  log_debug(gc)("Verifying remembered set at %s mark", gen_heap->doing_mixed_evacuations()? "mixed": "young");
 
-  if (_heap->is_old_bitmap_stable() || _heap->active_generation()->is_global()) {
-    ctx = _heap->complete_marking_context();
+  if (gen_heap->is_old_bitmap_stable() || gen_heap->active_generation()->is_global()) {
+    ctx = gen_heap->complete_marking_context();
   } else {
     ctx = nullptr;
   }
@@ -1447,11 +1448,12 @@ void ShenandoahVerifier::verify_rem_set_before_update_ref() {
   shenandoah_assert_safepoint();
   assert(_heap->mode()->is_generational(), "Only verify remembered set for generational operational modes");
 
+  ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)_heap;
   ShenandoahRegionIterator iterator;
   ShenandoahMarkingContext* ctx;
 
-  if (_heap->is_old_bitmap_stable() || _heap->active_generation()->is_global()) {
-    ctx = _heap->complete_marking_context();
+  if (gen_heap->is_old_bitmap_stable() || gen_heap->active_generation()->is_global()) {
+    ctx = gen_heap->complete_marking_context();
   } else {
     ctx = nullptr;
   }

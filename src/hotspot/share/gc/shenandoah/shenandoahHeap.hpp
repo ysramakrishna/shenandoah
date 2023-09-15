@@ -176,11 +176,9 @@ public:
     _gc_generation = generation;
   }
 
-  ShenandoahHeuristics* heuristics();
-
-  bool doing_mixed_evacuations();
-  bool is_old_bitmap_stable() const;
   bool is_gc_generation_young() const;
+
+  ShenandoahHeuristics* heuristics();
 
 // ---------- Initialization, termination, identification, printing routines
 //
@@ -509,7 +507,6 @@ private:
   ShenandoahPhaseTimings*       _phase_timings;
   ShenandoahEvacuationTracker*  _evac_tracker;
   ShenandoahMmuTracker          _mmu_tracker;
-  ShenandoahGenerationSizer     _generation_sizer;
 
   ShenandoahRegulatorThread* regulator_thread()        { return _regulator_thread;  }
 
@@ -517,10 +514,6 @@ public:
   ShenandoahControlThread*   control_thread()          { return _control_thread;    }
   ShenandoahGeneration*      global_generation() const { return _global_generation; }
   ShenandoahGeneration*      generation_for(ShenandoahAffiliation affiliation) const;
-  const ShenandoahGenerationSizer* generation_sizer()  const { return &_generation_sizer;  }
-
-  size_t max_size_for(ShenandoahGeneration* generation) const;
-  size_t min_size_for(ShenandoahGeneration* generation) const;
 
   ShenandoahCollectorPolicy* shenandoah_policy() const { return _shenandoah_policy; }
   ShenandoahMode*            mode()              const { return _gc_mode;           }
@@ -735,15 +728,10 @@ public:
 private:
   ShenandoahCollectionSet* _collection_set;
   ShenandoahEvacOOMHandler _oom_evac_handler;
-  ShenandoahSharedFlag _old_gen_oom_evac;
 
   inline oop try_evacuate_object(oop src, Thread* thread, ShenandoahHeapRegion* from_region, ShenandoahAffiliation target_gen);
-  void handle_old_evacuation(HeapWord* obj, size_t words, bool promotion);
-  void handle_old_evacuation_failure();
 
 public:
-  void report_promotion_failure(Thread* thread, size_t size);
-
   static address in_cset_fast_test_addr();
 
   ShenandoahCollectionSet* collection_set() const { return _collection_set; }
@@ -761,8 +749,6 @@ public:
   // Call before/after evacuation.
   inline void enter_evacuation(Thread* t);
   inline void leave_evacuation(Thread* t);
-
-  inline bool clear_old_evacuation_failure();
 
 // ---------- Helper functions
 //

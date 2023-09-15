@@ -98,13 +98,13 @@ private:
   //
   RememberedScanner* _card_scan;
 
+public:
   bool doing_mixed_evacuations();
   bool is_old_bitmap_stable() const;
-  bool is_gc_generation_young() const;
-
+  // bool is_gc_generation_young() const;
+  
   // ---------- Allocation, including promotion local allocation buffers
   //
-public: // TODO: fix
   inline HeapWord* allocate_from_plab(Thread* thread, size_t size, bool is_promotion);
 private:
   HeapWord* allocate_from_plab_slow(Thread* thread, size_t size, bool is_promotion);
@@ -126,6 +126,10 @@ public:
 
   ShenandoahYoungGeneration* young_generation()  const { return _young_generation;  }
   ShenandoahOldGeneration*   old_generation()    const { return _old_generation;    }
+  const ShenandoahGenerationSizer* generation_sizer()  const { return &_generation_sizer;  }
+
+  size_t max_size_for(ShenandoahGeneration* generation) const;
+  size_t min_size_for(ShenandoahGeneration* generation) const;
 
   void initialize_heuristics() override;
 
@@ -208,6 +212,8 @@ public:
   inline size_t set_young_evac_reserve(size_t new_val);
   inline size_t get_young_evac_reserve() const;
 
+  inline bool clear_old_evacuation_failure();
+
   // Return the age census object for young gen (in generational mode)
   inline ShenandoahAgeCensus* age_census() const;
 
@@ -235,6 +241,14 @@ private:
   size_t select_aged_regions(size_t old_available, size_t num_regions, bool candidate_regions_for_promotion_by_copy[]);
 
   void assert_no_in_place_promotions() PRODUCT_RETURN;
+
+  ShenandoahSharedFlag _old_gen_oom_evac;
+
+
+public:
+  void handle_old_evacuation(HeapWord* obj, size_t words, bool promotion);
+  void handle_old_evacuation_failure();
+  void report_promotion_failure(Thread* thread, size_t size);
 };
 
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHGENERATIONALHEAP_HPP

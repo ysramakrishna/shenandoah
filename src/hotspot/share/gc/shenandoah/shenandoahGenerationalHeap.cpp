@@ -260,6 +260,26 @@ void ShenandoahGenerationalHeap::report_promotion_failure(Thread* thread, size_t
   }
 }
 
+HeapWord* ShenandoahGenerationalHeap::allocate_new_plab(size_t min_size,
+                                            size_t word_size,
+                                            size_t* actual_size) {
+  // Align requested sizes to card sized multiples
+  size_t words_in_card = CardTable::card_size_in_words();
+  size_t align_mask = ~(words_in_card - 1);
+  min_size = (min_size + words_in_card - 1) & align_mask;
+  word_size = (word_size + words_in_card - 1) & align_mask;
+  ShenandoahAllocRequest req = ShenandoahAllocRequest::for_plab(min_size, word_size);
+  // Note that allocate_memory() sets a thread-local flag to prohibit further promotions by this thread
+  // if we are at risk of infringing on the old-gen evacuation budget.
+  HeapWord* res = allocate_memory(req, false);
+  if (res != nullptr) {
+    *actual_size = req.actual_size();
+  } else {
+    *actual_size = 0;
+  }
+  return res;
+}
+
 // Establish a new PLAB and allocate size HeapWords within it.
 HeapWord* ShenandoahGenerationalHeap::allocate_from_plab_slow(Thread* thread, size_t size, bool is_promotion) {
   // New object should fit the PLAB size
@@ -406,6 +426,49 @@ void ShenandoahGenerationalHeap::cancel_old_gc() {
 bool ShenandoahGenerationalHeap::is_old_gc_active() {
   return _old_generation->state() != ShenandoahOldGeneration::IDLE;
 }
+
+void ShenandoahGenerationalHeap::set_concurrent_young_mark_in_progress(bool in_progress) {
+  uint mask;
+  assert(!has_forwarded_objects(), "Young marking is not concurrent with evacuation");
+  if (!in_progress && is_concurrent_old_mark_in_progress()) {
+    assert(mode()->is_generational(), "Only generational GC has old marking");
+    assert(_gc_state.is_set(MARKING), "concurrent_old_marking_in_progress implies MARKING");
+    // If old-marking is in progress when we turn off YOUNG_MARKING, leave MARKING (and OLD_MARKING) on
+    mask = YOUNG_MARKING;
+  } else {
+    mask = MARKING | YOUNG_MARKING;
+  }
+  set_gc_state_mask(mask, in_progress);
+  manage_satb_barrier(in_progress);
+}
+
+void ShenandoahGenerationalHeap::set_concurrent_old_mark_in_progress(bool in_progress) {
+#ifdef ASSERT
+  // has_forwarded_objects() iff UPDATEREFS or EVACUATION
+  bool has_forwarded = has_forwarded_objects()? 1: 0;
+  bool updating_or_evacuating = _gc_state.is_set(UPDATEREFS | EVACUATION)? 1: 0;
+  assert (has_forwarded == updating_or_evacuating, "Has forwarded objects iff updating or evacuating");
+#endif
+  if (!in_progress && is_concurrent_young_mark_in_progress()) {
+    // If young-marking is in progress when we turn off OLD_MARKING, leave MARKING (and YOUNG_MARKING) on
+    assert(_gc_state.is_set(MARKING), "concurrent_young_marking_in_progress implies MARKING");
+    set_gc_state_mask(OLD_MARKING, in_progress);
+  } else {
+    set_gc_state_mask(MARKING | OLD_MARKING, in_progress);
+  }
+  manage_satb_barrier(in_progress);
+}
+
+void ShenandoahGenerationalHeap::set_prepare_for_old_mark_in_progress(bool in_progress) {
+  // Unlike other set-gc-state functions, this may happen outside safepoint.
+  // Is only set and queried by control thread, so no coherence issues.
+  _prepare_for_old_mark = in_progress;
+}
+
+void ShenandoahGenerationalHeap::set_aging_cycle(bool in_progress) {
+  _is_aging_cycle.set_cond(in_progress);
+}
+
 
 // xfer_limit is the maximum we're able to transfer from young to old
 void ShenandoahGenerationalHeap::adjust_generation_sizes_for_next_cycle(

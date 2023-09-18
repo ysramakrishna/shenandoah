@@ -1218,6 +1218,8 @@ void ShenandoahConcurrentGC::op_update_thread_roots() {
 
 void ShenandoahConcurrentGC::op_final_updaterefs() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
+  ShenandoahGenerationalHeap* const gen_heap = (ShenandoahGenerationalHeap*)heap;
+
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "must be at safepoint");
   assert(!heap->_update_refs_iterator.has_next(), "Should have finished update references");
 
@@ -1234,7 +1236,7 @@ void ShenandoahConcurrentGC::op_final_updaterefs() {
     heap->verifier()->verify_roots_in_to_space();
   }
 
-  if (heap->mode()->is_generational() && heap->is_concurrent_old_mark_in_progress()) {
+  if (heap->mode()->is_generational() && gen_heap->is_concurrent_old_mark_in_progress()) {
     // When the SATB barrier is left on to support concurrent old gen mark, it may pick up writes to
     // objects in the collection set. After those objects are evacuated, the pointers in the
     // SATB are no longer safe. Once we have finished update references, we are guaranteed that
@@ -1249,7 +1251,7 @@ void ShenandoahConcurrentGC::op_final_updaterefs() {
     // We are not concerned about skipping this step in abbreviated cycles because regions
     // with no live objects cannot have been written to and so cannot have entries in the SATB
     // buffers.
-    heap->transfer_old_pointers_from_satb();
+    gen_heap->transfer_old_pointers_from_satb();
   }
 
   heap->update_heap_region_states(true /*concurrent*/);
@@ -1259,7 +1261,7 @@ void ShenandoahConcurrentGC::op_final_updaterefs() {
 
   // Aging_cycle is only relevant during evacuation cycle for individual objects and during final mark for
   // entire regions.  Both of these relevant operations occur before final update refs.
-  heap->set_aging_cycle(false);
+  gen_heap->set_aging_cycle(false);
 
   if (ShenandoahVerify) {
     heap->verifier()->verify_after_updaterefs();

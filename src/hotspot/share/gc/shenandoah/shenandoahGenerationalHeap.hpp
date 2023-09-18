@@ -217,6 +217,11 @@ public:
   // Return the age census object for young gen (in generational mode)
   inline ShenandoahAgeCensus* age_census() const;
 
+  void set_concurrent_young_mark_in_progress(bool in_progress);
+  void set_concurrent_old_mark_in_progress(bool in_progress);
+  void set_prepare_for_old_mark_in_progress(bool cond);
+  void set_aging_cycle(bool cond);
+
   inline bool is_prepare_for_old_mark_in_progress() const;
   inline bool is_aging_cycle() const;
 

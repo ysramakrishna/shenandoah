@@ -398,8 +398,6 @@ public:
   static address gc_state_addr();
 
   void set_evacuation_reserve_quantities(bool is_valid);
-  void set_concurrent_young_mark_in_progress(bool in_progress);
-  void set_concurrent_old_mark_in_progress(bool in_progress);
   void set_evacuation_in_progress(bool in_progress);
   void set_update_refs_in_progress(bool in_progress);
   void set_degenerated_gc_in_progress(bool in_progress);
@@ -408,8 +406,6 @@ public:
   void set_has_forwarded_objects(bool cond);
   void set_concurrent_strong_root_in_progress(bool cond);
   void set_concurrent_weak_root_in_progress(bool cond);
-  void set_prepare_for_old_mark_in_progress(bool cond);
-  void set_aging_cycle(bool cond);
 
   inline bool is_stable() const;
   inline bool is_idle() const;

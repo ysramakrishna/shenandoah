@@ -2080,48 +2080,6 @@ void ShenandoahHeap::set_evacuation_reserve_quantities(bool is_valid) {
   _has_evacuation_reserve_quantities = is_valid;
 }
 
-void ShenandoahHeap::set_concurrent_young_mark_in_progress(bool in_progress) {
-  uint mask;
-  assert(!has_forwarded_objects(), "Young marking is not concurrent with evacuation");
-  if (!in_progress && is_concurrent_old_mark_in_progress()) {
-    assert(mode()->is_generational(), "Only generational GC has old marking");
-    assert(_gc_state.is_set(MARKING), "concurrent_old_marking_in_progress implies MARKING");
-    // If old-marking is in progress when we turn off YOUNG_MARKING, leave MARKING (and OLD_MARKING) on
-    mask = YOUNG_MARKING;
-  } else {
-    mask = MARKING | YOUNG_MARKING;
-  }
-  set_gc_state_mask(mask, in_progress);
-  manage_satb_barrier(in_progress);
-}
-
-void ShenandoahHeap::set_concurrent_old_mark_in_progress(bool in_progress) {
-#ifdef ASSERT
-  // has_forwarded_objects() iff UPDATEREFS or EVACUATION
-  bool has_forwarded = has_forwarded_objects()? 1: 0;
-  bool updating_or_evacuating = _gc_state.is_set(UPDATEREFS | EVACUATION)? 1: 0;
-  assert (has_forwarded == updating_or_evacuating, "Has forwarded objects iff updating or evacuating");
-#endif
-  if (!in_progress && is_concurrent_young_mark_in_progress()) {
-    // If young-marking is in progress when we turn off OLD_MARKING, leave MARKING (and YOUNG_MARKING) on
-    assert(_gc_state.is_set(MARKING), "concurrent_young_marking_in_progress implies MARKING");
-    set_gc_state_mask(OLD_MARKING, in_progress);
-  } else {
-    set_gc_state_mask(MARKING | OLD_MARKING, in_progress);
-  }
-  manage_satb_barrier(in_progress);
-}
-
-void ShenandoahHeap::set_prepare_for_old_mark_in_progress(bool in_progress) {
-  // Unlike other set-gc-state functions, this may happen outside safepoint.
-  // Is only set and queried by control thread, so no coherence issues.
-  _prepare_for_old_mark = in_progress;
-}
-
-void ShenandoahHeap::set_aging_cycle(bool in_progress) {
-  _is_aging_cycle.set_cond(in_progress);
-}
-
 void ShenandoahHeap::manage_satb_barrier(bool active) {
   if (is_concurrent_mark_in_progress()) {
     // Ignore request to deactivate barrier while concurrent mark is in progress.

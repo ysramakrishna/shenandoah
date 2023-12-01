@@ -268,6 +268,8 @@ public:
 #else //ASSERT
   void verify_adr_type(bool recursive = false) const {}
 #endif //ASSERT
+
+  const TypeTuple* collect_types(PhaseGVN* phase) const;
 };
 
 //------------------------------GotoNode---------------------------------------
@@ -339,7 +341,7 @@ private:
 protected:
   ProjNode* range_check_trap_proj(int& flip, Node*& l, Node*& r);
   Node* Ideal_common(PhaseGVN *phase, bool can_reshape);
-  Node* search_identical(int dist);
+  Node* search_identical(int dist, PhaseIterGVN* igvn);
 
   Node* simple_subsuming(PhaseIterGVN* igvn);
 
@@ -429,6 +431,7 @@ public:
   Node* fold_compares(PhaseIterGVN* phase);
   static Node* up_one_dom(Node* curr, bool linear_only = false);
   Node* dominated_by(Node* prev_dom, PhaseIterGVN* igvn);
+  bool is_zero_trip_guard() const;
 
   // Takes the type of val and filters it through the test represented
   // by if_proj and returns a more refined type if one is produced.
@@ -438,6 +441,8 @@ public:
 #ifndef PRODUCT
   virtual void dump_spec(outputStream *st) const;
 #endif
+
+  bool same_condition(const Node* dom, PhaseIterGVN* igvn) const;
 };
 
 class RangeCheckNode : public IfNode {

@@ -218,6 +218,11 @@ public:
 private:
   size_t _initial_size;
   size_t _minimum_size;
+  // Should go to ShenandoahGenerationalHeap
+  // size_t _promotion_potential;
+  // size_t _pad_for_promote_in_place;    // bytes of filler
+  // size_t _promotable_humongous_regions;
+  // size_t _regular_regions_promoted_in_place;
 
   volatile size_t _soft_max_size;
   shenandoah_padding(0);
@@ -342,8 +347,12 @@ private:
   ShenandoahSharedFlag   _degenerated_gc_in_progress;
   ShenandoahSharedFlag   _full_gc_in_progress;
   ShenandoahSharedFlag   _full_gc_move_in_progress;
-  ShenandoahSharedFlag   _progress_last_gc;
   ShenandoahSharedFlag   _concurrent_strong_root_in_progress;
+
+  size_t _gc_no_progress_count;
+
+#if 0
+// Check below this line for Generational Heao stuff?
 
   // TODO: Revisit the following comment.  It may not accurately represent the true behavior when evacuations fail due to
   // difficulty finding memory to hold evacuated objects.
@@ -354,25 +363,11 @@ private:
   // effort.  If this happens, the requesting thread blocks until some other thread manages to evacuate the offending object.
   // Only after "all" threads fail to evacuate an object do we consider the evacuation effort to have failed.
 
-  // How many full-gc cycles have been completed?
-  volatile size_t _completed_fullgc_cycles;
-
   size_t _promoted_reserve;            // Bytes reserved within old-gen to hold the results of promotion
   volatile size_t _promoted_expended;  // Bytes of old-gen memory expended on promotions
 
-  // Allocation of old GCLABs (aka PLABs) assures that _old_evac_expended + request-size < _old_evac_reserved.  If the allocation
-  //  is authorized, increment _old_evac_expended by request size.  This allocation ignores old_gen->available().
-
   size_t _old_evac_reserve;            // Bytes reserved within old-gen to hold evacuated objects from old-gen collection set
-  volatile size_t _old_evac_expended;  // Bytes of old-gen memory expended on old-gen evacuations
-
   size_t _young_evac_reserve;          // Bytes reserved within young-gen to hold evacuated objects from young-gen collection set
-
-  size_t _captured_old_usage;          // What was old usage (bytes) when last captured?
-
-  size_t _previous_promotion;          // Bytes promoted during previous evacuation
-
-  bool _upgraded_to_full;
 
   ShenandoahAgeCensus* _age_census;    // Age census used for adapting tenuring threshold in generational mode
 
@@ -395,7 +390,6 @@ private:
 
 public:
   char gc_state() const;
-  static address gc_state_addr();
 
   void set_evacuation_reserve_quantities(bool is_valid);
   void set_evacuation_in_progress(bool in_progress);
@@ -406,6 +400,9 @@ public:
   void set_has_forwarded_objects(bool cond);
   void set_concurrent_strong_root_in_progress(bool cond);
   void set_concurrent_weak_root_in_progress(bool cond);
+
+  // Should move to ShenandoahGenerationalHeap
+  // void set_aging_cycle(bool cond);
 
   inline bool is_stable() const;
   inline bool is_idle() const;
@@ -419,13 +416,49 @@ public:
   inline bool is_full_gc_in_progress() const;
   inline bool is_full_gc_move_in_progress() const;
   inline bool has_forwarded_objects() const;
-  inline bool is_gc_in_progress_mask(uint mask) const;
+
   inline bool is_stw_gc_in_progress() const;
   inline bool is_concurrent_strong_root_in_progress() const;
   inline bool is_concurrent_weak_root_in_progress() const;
-  inline bool upgraded_to_full() { return _upgraded_to_full; }
-  inline void start_conc_gc() { _upgraded_to_full = false; }
-  inline void record_upgrade_to_full() { _upgraded_to_full = true; }
+  bool is_prepare_for_old_mark_in_progress() const;
+  inline bool is_aging_cycle() const;
+
+  inline void clear_promotion_potential() { _promotion_potential = 0; };
+  inline void set_promotion_potential(size_t val) { _promotion_potential = val; };
+  inline size_t get_promotion_potential() { return _promotion_potential; };
+
+  inline void set_pad_for_promote_in_place(size_t pad) { _pad_for_promote_in_place = pad; }
+  inline size_t get_pad_for_promote_in_place() { return _pad_for_promote_in_place; }
+
+  inline void reserve_promotable_humongous_regions(size_t region_count) { _promotable_humongous_regions = region_count; }
+  inline void reserve_promotable_regular_regions(size_t region_count) { _regular_regions_promoted_in_place = region_count; }
+
+  inline size_t get_promotable_humongous_regions() { return _promotable_humongous_regions; }
+  inline size_t get_regular_regions_promoted_in_place() { return _regular_regions_promoted_in_place; }
+
+  // Returns previous value
+  inline size_t set_promoted_reserve(size_t new_val);
+  inline size_t get_promoted_reserve() const;
+  inline void augment_promo_reserve(size_t increment);
+
+  inline void reset_promoted_expended();
+  inline size_t expend_promoted(size_t increment);
+  inline size_t unexpend_promoted(size_t decrement);
+  inline size_t get_promoted_expended();
+
+  // Returns previous value
+  inline size_t set_old_evac_reserve(size_t new_val);
+  inline size_t get_old_evac_reserve() const;
+  inline void augment_old_evac_reserve(size_t increment);
+
+  // Returns previous value
+  inline size_t set_young_evac_reserve(size_t new_val);
+  inline size_t get_young_evac_reserve() const;
+
+  // Return the age census object for young gen (in generational mode)
+  inline ShenandoahAgeCensus* age_census() const;
+#endif
+// A lot of stuff above this line to be cleaned up and sent to generational heap
 
 private:
   void manage_satb_barrier(bool active);
@@ -484,8 +517,9 @@ private:
   void recycle_trash();
 public:
   void rebuild_free_set(bool concurrent);
-  void notify_gc_progress()    { _progress_last_gc.set();   }
-  void notify_gc_no_progress() { _progress_last_gc.unset(); }
+  void notify_gc_progress();
+  void notify_gc_no_progress();
+  size_t get_gc_no_progress_count() const;
 
 //
 // Mark support
@@ -590,7 +624,6 @@ public:
   inline void set_affiliation(ShenandoahHeapRegion* r, ShenandoahAffiliation new_affiliation);
 
   inline ShenandoahAffiliation region_affiliation(size_t index);
-  inline void set_affiliation(size_t index, ShenandoahAffiliation new_affiliation);
 
   bool requires_barriers(stackChunkOop obj) const override;
 
@@ -671,6 +704,13 @@ public:
   void tlabs_retire(bool resize);
   void gclabs_retire(bool resize);
 
+  // Should move to generational heap
+  // inline void set_old_region_surplus(size_t surplus) { _old_regions_surplus = surplus; };
+  // inline void set_old_region_deficit(size_t deficit) { _old_regions_deficit = deficit; };
+  //
+  // inline size_t get_old_region_surplus() { return _old_regions_surplus; };
+  // inline size_t get_old_region_deficit() { return _old_regions_deficit; };
+
 // ---------- Marking support
 //
 private:
@@ -746,6 +786,24 @@ public:
   inline void enter_evacuation(Thread* t);
   inline void leave_evacuation(Thread* t);
 
+  // Move to generational heap
+  // inline bool clear_old_evacuation_failure();
+
+// ---------- Generational support
+//
+// private:
+//   RememberedScanner* _card_scan;
+// 
+// public:
+//   inline RememberedScanner* card_scan() { return _card_scan; }
+//   void clear_cards_for(ShenandoahHeapRegion* region);
+//   void mark_card_as_dirty(void* location);
+//   void retire_plab(PLAB* plab);
+//   void retire_plab(PLAB* plab, Thread* thread);
+//   void cancel_old_gc();
+
+//   void adjust_generation_sizes_for_next_cycle(size_t old_xfer_limit, size_t young_cset_regions, size_t old_cset_regions);
+
 // ---------- Helper functions
 //
 public:
@@ -771,14 +829,10 @@ public:
 
   static inline void increase_object_age(oop obj, uint additional_age);
 
-  // Return the object's age (at a safepoint or when object isn't
-  // mutable by the mutator)
-  static inline uint get_object_age(oop obj);
-
   // Return the object's age, or a sentinel value when the age can't
   // necessarily be determined because of concurrent locking by the
   // mutator
-  static inline uint get_object_age_concurrent(oop obj);
+  static inline uint get_object_age(oop obj);
 
   void transfer_old_pointers_from_satb();
 

@@ -35,7 +35,6 @@
 
 ShenandoahYoungHeuristics::ShenandoahYoungHeuristics(ShenandoahYoungGeneration* generation)
         : ShenandoahGenerationalHeuristics(generation) {
-  assert(!generation->is_old(), "Young heuristics only accept the young generation");
 }
 
 
@@ -135,8 +134,10 @@ bool ShenandoahYoungHeuristics::should_start_gc() {
   // be done, we start up the young-gen GC threads so they can do some of this old-gen work.  As implemented, promotion
   // gets priority over old-gen marking.
   ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
+
+  size_t promo_expedite_threshold = percent_of(heap->young_generation()->max_capacity(), ShenandoahExpeditePromotionsThreshold);
   size_t promo_potential = heap->get_promotion_potential();
-  if (promo_potential > 0) {
+  if (promo_potential > promo_expedite_threshold) {
     // Detect unsigned arithmetic underflow
     assert(promo_potential < heap->capacity(), "Sanity");
     log_info(gc)("Trigger (%s): expedite promotion of " SIZE_FORMAT "%s",
@@ -146,21 +147,13 @@ bool ShenandoahYoungHeuristics::should_start_gc() {
     return true;
   }
 
-  size_t promo_in_place_potential = heap->get_promotion_in_place_potential();
-  if (promo_in_place_potential > 0) {
-    // Detect unsigned arithmetic underflow
-    assert(promo_in_place_potential < heap->capacity(), "Sanity");
-    log_info(gc)("Trigger (%s): expedite promotion in place of " SIZE_FORMAT "%s",
-                 _space_info->name(),
-                 byte_size_in_proper_unit(promo_in_place_potential),
-                 proper_unit_for_byte_size(promo_in_place_potential));
-    return true;
-  }
-
   ShenandoahOldHeuristics* old_heuristics = heap->old_heuristics();
   size_t mixed_candidates = old_heuristics->unprocessed_old_collection_candidates();
-  if (mixed_candidates > 0) {
+  if (mixed_candidates > ShenandoahExpediteMixedThreshold && !heap->is_concurrent_weak_root_in_progress()) {
     // We need to run young GC in order to open up some free heap regions so we can finish mixed evacuations.
+    // If concurrent weak root processing is in progress, it means the old cycle has chosen mixed collection
+    // candidates, but has not completed. There is no point in trying to start the young cycle before the old
+    // cycle completes.
     log_info(gc)("Trigger (%s): expedite mixed evacuation of " SIZE_FORMAT " regions",
                  _space_info->name(), mixed_candidates);
     return true;

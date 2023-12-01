@@ -205,6 +205,9 @@ private:
   //  CardTable::clean_card_val()
   //  CardTable::dirty_card_val()
 
+  const size_t LogCardValsPerIntPtr;    // the number of card values (entries) in an intptr_t
+  const size_t LogCardSizeInWords;      // the size of a card in heap word units
+
   ShenandoahHeap *_heap;
   ShenandoahCardTable *_card_table;
   size_t _card_shift;
@@ -218,7 +221,6 @@ public:
 
   // count is the number of cards represented by the card table.
   ShenandoahDirectCardMarkRememberedSet(ShenandoahCardTable *card_table, size_t total_card_count);
-  ~ShenandoahDirectCardMarkRememberedSet();
 
   // Card index is zero-based relative to _byte_map.
   size_t last_valid_index() const;
@@ -231,7 +233,6 @@ public:
   inline void mark_card_as_dirty(size_t card_index);
   inline void mark_range_as_dirty(size_t card_index, size_t num_cards);
   inline void mark_card_as_clean(size_t card_index);
-  inline void mark_read_card_as_clean(size_t card_index);
   inline void mark_range_as_clean(size_t card_index, size_t num_cards);
   inline bool is_card_dirty(HeapWord *p) const;
   inline void mark_card_as_dirty(HeapWord *p);
@@ -242,39 +243,19 @@ public:
 
   // Called by GC thread at start of concurrent mark to exchange roles of read and write remembered sets.
   // Not currently used because mutator write barrier does not honor changes to the location of card table.
+  // Instead of swap_remset, the current implementation of concurrent remembered set scanning does reset_remset
+  // in parallel threads, each invocation processing one entire HeapRegion at a time.
   void swap_remset() {  _card_table->swap_card_tables(); }
 
-  void merge_write_table(HeapWord* start, size_t word_count) {
-    size_t card_index = card_index_for_addr(start);
-    size_t num_cards = word_count / CardTable::card_size_in_words();
-    size_t iterations = num_cards / (sizeof (intptr_t) / sizeof (CardValue));
-    intptr_t* read_table_ptr = (intptr_t*) &(_card_table->read_byte_map())[card_index];
-    intptr_t* write_table_ptr = (intptr_t*) &(_card_table->write_byte_map())[card_index];
-    for (size_t i = 0; i < iterations; i++) {
-      intptr_t card_value = *write_table_ptr;
-      *read_table_ptr++ &= card_value;
-      write_table_ptr++;
-    }
-  }
+  // Merge any dirty values from write table into the read table, while leaving
+  // the write table unchanged.
+  void merge_write_table(HeapWord* start, size_t word_count);
 
-  // Instead of swap_remset, the current implementation of concurrent remembered set scanning does reset_remset
-  // in parallel threads, each invocation processing one entire HeapRegion at a time.  Processing of a region
-  // consists of copying the write table to the read table and cleaning the write table.
-  void reset_remset(HeapWord* start, size_t word_count) {
-    size_t card_index = card_index_for_addr(start);
-    size_t num_cards = word_count / CardTable::card_size_in_words();
-    size_t iterations = num_cards / (sizeof (intptr_t) / sizeof (CardValue));
-    intptr_t* read_table_ptr = (intptr_t*) &(_card_table->read_byte_map())[card_index];
-    intptr_t* write_table_ptr = (intptr_t*) &(_card_table->write_byte_map())[card_index];
-    for (size_t i = 0; i < iterations; i++) {
-      *read_table_ptr++ = *write_table_ptr;
-      *write_table_ptr++ = CardTable::clean_card_row_val();
-    }
-  }
+  // Destructively copy the write table to the read table, and clean the write table.
+  void reset_remset(HeapWord* start, size_t word_count);
 
   // Called by GC thread after scanning old remembered set in order to prepare for next GC pass
   void clear_old_remset() {  _card_table->clear_read_table(); }
-
 };
 
 // A ShenandoahCardCluster represents the minimal unit of work
@@ -822,7 +803,6 @@ public:
   void mark_card_as_dirty(size_t card_index);
   void mark_range_as_dirty(size_t card_index, size_t num_cards);
   void mark_card_as_clean(size_t card_index);
-  void mark_read_card_as_clean(size_t card_index) { _rs->mark_read_card_clean(card_index); }
   void mark_range_as_clean(size_t card_index, size_t num_cards);
   bool is_card_dirty(HeapWord *p);
   void mark_card_as_dirty(HeapWord *p);
@@ -1068,6 +1048,7 @@ class ShenandoahScanRememberedTask : public WorkerTask {
   void do_work(uint worker_id);
 };
 
+// ysr TODO: is this gone?
 // Verify that the oop doesn't point into the young generation
 class ShenandoahVerifyNoYoungRefsClosure: public BasicOopIterateClosure {
   ShenandoahGenerationalHeap* _gen_heap;

@@ -70,6 +70,26 @@ protected:
   ShenandoahHeuristics* _heuristics;
 
 private:
+  // Compute evacuation budgets prior to choosing collection set.
+  void compute_evacuation_budgets(ShenandoahHeap* heap,
+                                  bool* preselected_regions,
+                                  ShenandoahCollectionSet* collection_set,
+                                  size_t& consumed_by_advance_promotion);
+
+  // Adjust evacuation budgets after choosing collection set.
+  void adjust_evacuation_budgets(ShenandoahHeap* heap,
+                                 ShenandoahCollectionSet* collection_set,
+                                 size_t consumed_by_advance_promotion);
+
+  // Preselect for inclusion into the collection set regions whose age is
+  // at or above tenure age and which contain more than ShenandoahOldGarbageThreshold
+  // amounts of garbage.
+  //
+  // Returns bytes of old-gen memory consumed by selected aged regions
+  size_t select_aged_regions(size_t old_available,
+                             size_t num_regions, bool
+                             candidate_regions_for_promotion_by_copy[]);
+
   size_t available(size_t capacity) const;
 
  public:
@@ -98,6 +118,7 @@ private:
   virtual size_t free_unaffiliated_regions() const;
   size_t used() const override { return _used; }
   size_t available() const override;
+  size_t available_with_reserve() const;
 
   // Returns the memory available based on the _soft_ max heap capacity (soft_max_heap - used).
   // The soft max heap size may be adjusted lower than the max heap size to cause the trigger
@@ -113,10 +134,6 @@ private:
   // capacity.
   void increase_capacity(size_t increment);
   void decrease_capacity(size_t decrement);
-
-  void set_soft_max_capacity(size_t soft_max_capacity) {
-    _soft_max_capacity = soft_max_capacity;
-  }
 
   void log_status(const char* msg) const;
 
@@ -193,7 +210,6 @@ private:
   void confirm_heuristics_mode();
 
   virtual void record_success_concurrent(bool abbreviated);
-  virtual void record_success_degenerated();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHGENERATION_HPP

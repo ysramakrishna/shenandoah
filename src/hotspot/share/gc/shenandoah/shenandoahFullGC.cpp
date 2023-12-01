@@ -34,6 +34,7 @@
 #include "gc/shenandoah/heuristics/shenandoahHeuristics.hpp"
 #include "gc/shenandoah/shenandoahConcurrentGC.hpp"
 #include "gc/shenandoah/shenandoahCollectionSet.hpp"
+#include "gc/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc/shenandoah/shenandoahFreeSet.hpp"
 #include "gc/shenandoah/shenandoahFullGC.hpp"
 #include "gc/shenandoah/shenandoahGlobalGeneration.hpp"
@@ -176,8 +177,15 @@ void ShenandoahFullGC::op_full(GCCause::Cause cause) {
   metrics.snap_after();
   if (heap->mode()->is_generational()) {
     ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
-    gen_heap->mmu_tracker()->record_full(gen_heap->global_generation(), GCId::current());
+    // Full GC should reset time since last gc for young and old heuristics
+    gen_heap->young_generation()->heuristics()->record_cycle_end();
+    gen_heap->old_generation()->heuristics()->record_cycle_end();
+
+    gen_heap->mmu_tracker()->record_full(GCId::current());
     gen_heap->log_heap_status("At end of Full GC");
+
+    assert(gen_heap->old_generation()->state() == ShenandoahOldGeneration::WAITING_FOR_BOOTSTRAP,
+           "After full GC, old generation should be waiting for bootstrap.");
 
     // Since we allow temporary violation of these constraints during Full GC, we want to enforce that the assertions are
     // made valid by the time Full GC completes.
@@ -191,6 +199,9 @@ void ShenandoahFullGC::op_full(GCCause::Cause cause) {
     assert((gen_heap->old_generation()->used() + gen_heap->old_generation()->get_humongous_waste())
            <= gen_heap->old_generation()->used_regions_size(), "Old consumed can be no larger than span of affiliated regions");
 
+    // Establish baseline for next old-has-grown trigger.
+    heap->old_generation()->set_live_bytes_after_last_mark(heap->old_generation()->used() +
+                                                           heap->old_generation()->get_humongous_waste());
   }
   if (metrics.is_good_progress()) {
     ShenandoahHeap::heap()->notify_gc_progress();
@@ -199,6 +210,10 @@ void ShenandoahFullGC::op_full(GCCause::Cause cause) {
     // progress, and it can finally fail.
     ShenandoahHeap::heap()->notify_gc_no_progress();
   }
+
+  // Regardless if progress was made, we record that we completed a "successful" full GC.
+  heap->global_generation()->heuristics()->record_success_full();
+  heap->shenandoah_policy()->record_success_full();
 }
 
 void ShenandoahFullGC::do_it(GCCause::Cause gc_cause) {
@@ -211,7 +226,6 @@ void ShenandoahFullGC::do_it(GCCause::Cause gc_cause) {
     // No need for old_gen->increase_used() as this was done when plabs were allocated.
     gen_heap->set_young_evac_reserve(0);
     gen_heap->set_old_evac_reserve(0);
-    gen_heap->reset_old_evac_expended();
     gen_heap->set_promoted_reserve(0);
 
     // Full GC supersedes any marking or coalescing in old generation.
@@ -424,7 +438,6 @@ void ShenandoahFullGC::phase1_mark_heap() {
     }
   }
   log_info(gc)("Live bytes in old after STW mark: " PROPERFMT, PROPERFMTARGS(live_bytes_in_old));
-  ((ShenandoahGenerationalHeap*)heap)->old_generation()->set_live_bytes_after_last_mark(live_bytes_in_old);
 }
 
 class ShenandoahPrepareForCompactionTask : public WorkerTask {
@@ -1547,7 +1560,8 @@ void ShenandoahFullGC::phase5_epilog() {
     }
     heap->collection_set()->clear();
     size_t young_cset_regions, old_cset_regions;
-    heap->free_set()->prepare_to_rebuild(young_cset_regions, old_cset_regions);
+    size_t first_old, last_old, num_old;
+    heap->free_set()->prepare_to_rebuild(young_cset_regions, old_cset_regions, first_old, last_old, num_old);
 
     // We also do not expand old generation size following Full GC because we have scrambled age populations and
     // no longer have objects separated by age into distinct regions.
@@ -1559,7 +1573,6 @@ void ShenandoahFullGC::phase5_epilog() {
 
     // In case this Full GC resulted from degeneration, clear the tally on anticipated promotion.
     gen_heap->clear_promotion_potential();
-    gen_heap->clear_promotion_in_place_potential();
 
     if (heap->mode()->is_generational()) {
       // Invoke this in case we are able to transfer memory from OLD to YOUNG.

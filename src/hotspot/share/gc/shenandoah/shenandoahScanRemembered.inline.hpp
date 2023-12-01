@@ -139,12 +139,6 @@ ShenandoahDirectCardMarkRememberedSet::mark_card_as_clean(HeapWord *p) {
 }
 
 inline void
-ShenandoahDirectCardMarkRememberedSet::mark_read_card_as_clean(size_t index) {
-  CardValue* bp = &(_card_table->read_byte_map())[index];
-  bp[0] = CardTable::clean_card_val();
-}
-
-inline void
 ShenandoahDirectCardMarkRememberedSet::mark_range_as_clean(HeapWord *p, size_t num_heap_words) {
   CardValue* bp = &(_card_table->write_byte_map_base())[uintptr_t(p) >> _card_shift];
   CardValue* end_bp = &(_card_table->write_byte_map_base())[uintptr_t(p + num_heap_words) >> _card_shift];
@@ -356,7 +350,7 @@ ShenandoahScanRemembered<RememberedSet>::total_cards() { return _rs->total_cards
 
 template<typename RememberedSet>
 inline size_t
-ShenandoahScanRemembered<RememberedSet>::card_index_for_addr(HeapWord *p) { return _rs->card_index_for_addr(p); };
+ShenandoahScanRemembered<RememberedSet>::card_index_for_addr(HeapWord *p) { return _rs->card_index_for_addr(p); }
 
 template<typename RememberedSet>
 inline HeapWord *
@@ -897,6 +891,7 @@ ShenandoahScanRemembered<RememberedSet>::addr_for_cluster(size_t cluster_no) {
 template<typename RememberedSet>
 void ShenandoahScanRemembered<RememberedSet>::roots_do(OopIterateClosure* cl) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+  log_info(gc, remset)("Scan remembered set using bitmap: %s", BOOL_TO_STR(heap->is_old_bitmap_stable()));
   for (size_t i = 0, n = heap->num_regions(); i < n; ++i) {
     ShenandoahHeapRegion* region = heap->get_region(i);
     if (region->is_old() && region->is_active() && !region->is_cset()) {
@@ -1016,6 +1011,7 @@ inline bool ShenandoahRegionChunkIterator::next(struct ShenandoahRegionChunk *as
   return true;
 }
 
+// ysr TODO: is this gone?
 template<class T>
 inline void ShenandoahVerifyNoYoungRefsClosure::work(T* p) {
   T o = RawAccess<>::oop_load(p);
@@ -1024,5 +1020,4 @@ inline void ShenandoahVerifyNoYoungRefsClosure::work(T* p) {
     assert(!_gen_heap->is_in_young(obj), "Found a young ref");
   }
 }
-
 #endif   // SHARE_GC_SHENANDOAH_SHENANDOAHSCANREMEMBEREDINLINE_HPP

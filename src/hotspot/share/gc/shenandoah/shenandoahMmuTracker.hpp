@@ -73,7 +73,7 @@ private:
   ShenandoahMmuTask* _mmu_periodic_task;
   TruncatedSeq _mmu_average;
 
-  void update_utilization(ShenandoahGeneration* generation, size_t gcid, const char* msg);
+  void update_utilization(size_t gcid, const char* msg);
   static void fetch_cpu_times(double &gc_time, double &mutator_time);
 
 public:
@@ -90,13 +90,13 @@ public:
   // We may redundantly record degen and full in the case that a degen upgrades to full.  When this happens, we will invoke
   // both record_full() and record_degenerated() with the same value of gcid.  record_full() is called first and the log
   // reports such a cycle as a FULL cycle.
-  void record_young(ShenandoahGeneration* generation, size_t gcid);
-  void record_global(ShenandoahGeneration* generation, size_t gcid);
-  void record_bootstrap(ShenandoahGeneration* generation, size_t gcid, bool has_old_candidates);
-  void record_old_marking_increment(ShenandoahGeneration* generation, size_t gcid, bool old_marking_done, bool has_old_candidates);
-  void record_mixed(ShenandoahGeneration* generation, size_t gcid, bool is_mixed_done);
-  void record_full(ShenandoahGeneration* generation, size_t gcid);
-  void record_degenerated(ShenandoahGeneration* generation, size_t gcid, bool is_old_boostrap, bool is_mixed_done);
+  void record_young(size_t gcid);
+  void record_global(size_t gcid);
+  void record_bootstrap(size_t gcid);
+  void record_old_marking_increment(bool old_marking_done);
+  void record_mixed(size_t gcid);
+  void record_full(size_t gcid);
+  void record_degenerated(size_t gcid, bool is_old_boostrap);
 
   // This is called by the periodic task timer. The interval is defined by
   // GCPauseIntervalMillis and defaults to 5 seconds. This method computes
@@ -115,15 +115,8 @@ private:
   };
   SizerKind _sizer_kind;
 
-  // False when using a fixed young generation size due to command-line options,
-  // true otherwise.
-  bool _use_adaptive_sizing;
-
   size_t _min_desired_young_regions;
   size_t _max_desired_young_regions;
-
-  double _resize_increment;
-  ShenandoahMmuTracker* _mmu_tracker;
 
   static size_t calculate_min_young_regions(size_t heap_region_count);
   static size_t calculate_max_young_regions(size_t heap_region_count);
@@ -133,7 +126,7 @@ private:
   void recalculate_min_max_young_length(size_t heap_region_count);
 
 public:
-  explicit ShenandoahGenerationSizer(ShenandoahMmuTracker* mmu_tracker);
+  ShenandoahGenerationSizer();
 
   // Calculate the maximum length of the young gen given the number of regions
   // depending on the sizing algorithm.
@@ -149,10 +142,6 @@ public:
   size_t max_young_size() const;
   size_t max_young_regions() const {
     return _max_desired_young_regions;
-  }
-
-  bool use_adaptive_sizing() const {
-    return _use_adaptive_sizing;
   }
 
   bool transfer_to_young(size_t regions) const;

@@ -72,14 +72,16 @@ void ShenandoahRegulatorThread::regulate_concurrent_cycles() {
     ShenandoahControlThread::GCMode mode = _control_thread->gc_mode();
     if (mode == ShenandoahControlThread::none) {
       if (should_unload_classes()) {
-        if (_control_thread->request_concurrent_gc(ShenandoahControlThread::select_global_generation())) {
+        if (request_concurrent_gc(ShenandoahControlThread::select_global_generation())) {
           log_info(gc)("Heuristics request for global (unload classes) accepted.");
         }
       } else {
-        if (start_old_cycle()) {
-          log_info(gc)("Heuristics request for old collection accepted");
-        } else if (start_young_cycle()) {
-          log_info(gc)("Heuristics request for young collection accepted");
+        if (_young_heuristics->should_start_gc()) {
+          if (start_old_cycle()) {
+            log_info(gc)("Heuristics request for old collection accepted");
+          } else if (request_concurrent_gc(YOUNG)) {
+            log_info(gc)("Heuristics request for young collection accepted");
+          }
         }
       }
     } else if (mode == ShenandoahControlThread::servicing_old) {
@@ -137,20 +139,41 @@ void ShenandoahRegulatorThread::regulator_sleep() {
   }
 
   os::naked_short_sleep(_sleep);
+  if (LogTarget(Debug, gc, thread)::is_enabled()) {
+    double elapsed = os::elapsedTime() - current;
+    double hiccup = elapsed - double(_sleep);
+    if (hiccup > 0.001) {
+      log_debug(gc, thread)("Regulator hiccup time: %.3fs", hiccup);
+    }
+  }
 }
 
 bool ShenandoahRegulatorThread::start_old_cycle() {
+  // TODO: These first two checks might be vestigial
   return !ShenandoahGenerationalHeap::gen_heap()->doing_mixed_evacuations() &&
          !ShenandoahGenerationalHeap::gen_heap()->collection_set()->has_old_regions() &&
          _old_heuristics->should_start_gc() && _control_thread->request_concurrent_gc(OLD);
+      // request_concurrent_gc(OLD); ??
+}
+
+bool ShenandoahRegulatorThread::request_concurrent_gc(ShenandoahGenerationType generation) {
+  double now = os::elapsedTime();
+  bool accepted = _control_thread->request_concurrent_gc(generation);
+  if (LogTarget(Debug, gc, thread)::is_enabled() && accepted) {
+    double wait_time = os::elapsedTime() - now;
+    if (wait_time > 0.001) {
+      log_debug(gc, thread)("Regulator waited %.3fs for control thread to acknowledge request.", wait_time);
+    }
+  }
+  return accepted;
 }
 
 bool ShenandoahRegulatorThread::start_young_cycle() {
-  return _young_heuristics->should_start_gc() && _control_thread->request_concurrent_gc(YOUNG);
+  return _young_heuristics->should_start_gc() && request_concurrent_gc(YOUNG);
 }
 
 bool ShenandoahRegulatorThread::start_global_cycle() {
-  return _global_heuristics->should_start_gc() && _control_thread->request_concurrent_gc(ShenandoahControlThread::select_global_generation());
+  return _global_heuristics->should_start_gc() && request_concurrent_gc(ShenandoahControlThread::select_global_generation());
 }
 
 void ShenandoahRegulatorThread::stop_service() {

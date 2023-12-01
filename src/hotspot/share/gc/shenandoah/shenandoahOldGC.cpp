@@ -88,7 +88,7 @@ void ShenandoahOldGC::op_final_mark() {
 bool ShenandoahOldGC::collect(GCCause::Cause cause) {
   ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::gen_heap();
   assert(!heap->doing_mixed_evacuations(), "Should not start an old gc with pending mixed evacuations");
-  assert(!heap->is_prepare_for_old_mark_in_progress(), "Old regions need to be parseable during concurrent mark.");
+  assert(!heap->is_prepare_for_old_mark_in_progress(), "Old regions need to be parsable during concurrent mark.");
 
   // Enable preemption of old generation mark.
   _allow_preemption.set();

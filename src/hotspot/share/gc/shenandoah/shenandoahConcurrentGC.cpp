@@ -103,7 +103,6 @@ ShenandoahGC::ShenandoahDegenPoint ShenandoahConcurrentGC::degen_point() const {
 
 bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  heap->start_conc_gc();
 
   ShenandoahBreakpointGCScope breakpoint_gc_scope(cause);
 
@@ -171,6 +170,8 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
   entry_cleanup_early();
 
   {
+    // TODO: Not sure there is value in logging free-set status right here.  Note that whenever the free set is rebuilt,
+    // it logs the newly rebuilt status.
     ShenandoahHeapLocker locker(heap->lock());
     heap->free_set()->log_status();
   }
@@ -388,17 +389,30 @@ void ShenandoahConcurrentGC::entry_final_roots() {
 
 void ShenandoahConcurrentGC::entry_reset() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
-  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
-  static const char* msg = "Concurrent reset";
-  ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_reset);
-  EventMark em("%s", msg);
-
-  ShenandoahWorkerScope scope(heap->workers(),
-                              ShenandoahWorkerPolicy::calc_workers_for_conc_reset(),
-                              "concurrent reset");
-
   heap->try_inject_alloc_failure();
-  op_reset();
+
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
+  {
+    static const char* msg = "Concurrent reset";
+    ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_reset);
+    EventMark em("%s", msg);
+
+    ShenandoahWorkerScope scope(heap->workers(),
+                                ShenandoahWorkerPolicy::calc_workers_for_conc_reset(),
+                                msg);
+    op_reset();
+  }
+
+  if (_do_old_gc_bootstrap) {
+    static const char* msg = "Concurrent reset (OLD)";
+    ShenandoahConcurrentPhase gc_phase(msg, ShenandoahPhaseTimings::conc_reset_old);
+    ShenandoahWorkerScope scope(ShenandoahHeap::heap()->workers(),
+                                ShenandoahWorkerPolicy::calc_workers_for_conc_reset(),
+                                msg);
+    EventMark em("%s", msg);
+
+    heap->old_generation()->prepare_gc();
+  }
 }
 
 void ShenandoahConcurrentGC::entry_scan_remembered_set() {
@@ -695,12 +709,8 @@ void ShenandoahConcurrentGC::op_init_mark() {
   // Make above changes visible to worker threads
   OrderAccess::fence();
 
-  // Arm nmethods for concurrent marking. When a nmethod is about to be executed,
-  // we need to make sure that all its metadata are marked. alternative is to remark
-  // thread roots at final mark pause, but it can be potential latency killer.
-  if (heap->unload_classes()) {
-    ShenandoahCodeRoots::arm_nmethods();
-  }
+  // Arm nmethods for concurrent mark
+  ShenandoahCodeRoots::arm_nmethods_for_mark();
 
   ShenandoahStackWatermark::change_epoch_id();
   if (ShenandoahPacing) {
@@ -800,7 +810,7 @@ void ShenandoahConcurrentGC::op_final_mark() {
           // Iff objects will be evaluated, arm the nmethod barriers. These will be disarmed
           // under the same condition (established in prepare_concurrent_roots) after strong
           // root evacuation has completed (see op_strong_roots).
-          ShenandoahCodeRoots::arm_nmethods();
+          ShenandoahCodeRoots::arm_nmethods_for_evac();
           ShenandoahStackWatermark::change_epoch_id();
         }
 
@@ -842,7 +852,7 @@ void ShenandoahConcurrentGC::op_final_mark() {
         heap->set_has_forwarded_objects(true);
 
         // Arm nmethods/stack for concurrent processing
-        ShenandoahCodeRoots::arm_nmethods();
+        ShenandoahCodeRoots::arm_nmethods_for_evac();
         ShenandoahStackWatermark::change_epoch_id();
 
         if (ShenandoahPacing) {
@@ -1281,9 +1291,16 @@ void ShenandoahConcurrentGC::op_final_roots() {
   heap->set_evacuation_in_progress(false);
 
   if (heap->mode()->is_generational()) {
-    ShenandoahMarkingContext *ctx = heap->complete_marking_context();
     ShenandoahGenerationalHeap* gen_heap = (ShenandoahGenerationalHeap*)heap;
 
+    // If the cycle was shortened for having enough immediate garbage, this could be
+    // the last GC safepoint before concurrent marking of old resumes. We must be sure
+    // that old mark threads don't see any pointers to garbage in the SATB buffers.
+    if (gen_heap->is_concurrent_old_mark_in_progress()) {
+      gen_heap->transfer_old_pointers_from_satb();
+    }
+
+    ShenandoahMarkingContext *ctx = gen_heap->complete_marking_context();
     for (size_t i = 0; i < gen_heap->num_regions(); i++) {
       ShenandoahHeapRegion *r = gen_heap->get_region(i);
       if (r->is_active() && r->is_young()) {
@@ -1315,9 +1332,9 @@ const char* ShenandoahConcurrentGC::init_mark_event_message() const {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
   assert(!heap->has_forwarded_objects(), "Should not have forwarded objects here");
   if (heap->unload_classes()) {
-    SHENANDOAH_RETURN_EVENT_MESSAGE(heap, _generation->type(), "Pause Init Mark", " (unload classes)");
+    SHENANDOAH_RETURN_EVENT_MESSAGE(_generation->type(), "Pause Init Mark", " (unload classes)");
   } else {
-    SHENANDOAH_RETURN_EVENT_MESSAGE(heap, _generation->type(), "Pause Init Mark", "");
+    SHENANDOAH_RETURN_EVENT_MESSAGE(_generation->type(), "Pause Init Mark", "");
   }
 }
 
@@ -1327,9 +1344,9 @@ const char* ShenandoahConcurrentGC::final_mark_event_message() const {
          "Should not have forwarded objects during final mark, unless old gen concurrent mark is running");
 
   if (heap->unload_classes()) {
-    SHENANDOAH_RETURN_EVENT_MESSAGE(heap, _generation->type(), "Pause Final Mark", " (unload classes)");
+    SHENANDOAH_RETURN_EVENT_MESSAGE(_generation->type(), "Pause Final Mark", " (unload classes)");
   } else {
-    SHENANDOAH_RETURN_EVENT_MESSAGE(heap, _generation->type(), "Pause Final Mark", "");
+    SHENANDOAH_RETURN_EVENT_MESSAGE(_generation->type(), "Pause Final Mark", "");
   }
 }
 
@@ -1338,8 +1355,8 @@ const char* ShenandoahConcurrentGC::conc_mark_event_message() const {
   assert(!heap->has_forwarded_objects() || heap->is_concurrent_old_mark_in_progress(),
          "Should not have forwarded objects concurrent mark, unless old gen concurrent mark is running");
   if (heap->unload_classes()) {
-    SHENANDOAH_RETURN_EVENT_MESSAGE(heap, _generation->type(), "Concurrent marking", " (unload classes)");
+    SHENANDOAH_RETURN_EVENT_MESSAGE(_generation->type(), "Concurrent marking", " (unload classes)");
   } else {
-    SHENANDOAH_RETURN_EVENT_MESSAGE(heap, _generation->type(), "Concurrent marking", "");
+    SHENANDOAH_RETURN_EVENT_MESSAGE(_generation->type(), "Concurrent marking", "");
   }
 }

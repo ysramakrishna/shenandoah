@@ -78,7 +78,7 @@
   product(bool, ShenandoahGenerationalAdaptiveTenuring, true, EXPERIMENTAL, \
           "(Generational mode only) Dynamically adapt tenuring age.")       \
                                                                             \
-  product(bool, ShenandoahGenerationalCensusIgnoreOlderCohorts, true,       \
+  product(bool, ShenandoahGenerationalCensusIgnoreOlderCohorts, false,      \
                                                                EXPERIMENTAL,\
           "(Generational mode only) Ignore mortality rates older than the " \
           "oldest cohort under the tenuring age for the last cycle." )      \
@@ -114,6 +114,10 @@
           "older cohorts are. Set this value to the largest cohort "        \
           "population volume that you are comfortable ignoring when making "\
           "tenuring decisions.")                                            \
+                                                                            \
+  product(bool, ShenandoahGenerationalTenuringXenoDown, true, EXPERIMENTAL, \
+          "(Generational mode only) When adaptive tenuring is enabled "     \
+          "and tenuring age is falling, step halfway to target.")           \
                                                                             \
   product(size_t, ShenandoahRegionSize, 0, EXPERIMENTAL,                    \
           "Static heap region size. Set zero to enable automatic sizing.")  \

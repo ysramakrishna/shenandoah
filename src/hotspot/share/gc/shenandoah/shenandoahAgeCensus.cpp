@@ -218,7 +218,22 @@ void ShenandoahAgeCensus::update_tenuring_threshold() {
     _tenuring_threshold[_epoch] = InitialTenuringThreshold;
   } else {
     uint tt = compute_tenuring_threshold();
-    assert(tt <= MAX_COHORTS, "Out of bounds");
+    assert(tt > 0 && tt <= MAX_COHORTS, "Out of bounds");
+    uint prev_tt = previous_tenuring_threshold();
+    // When reducing tenuring threshold from a previously high value,
+    // we'll "xeno" our way down, stepping halfway towards the recommended
+    // target. This favors keeping objects in the young generation a bit
+    // longer because they may display increased mortality very soon in the
+    // future, just like recent older cohorts did.
+    if (ShenandoahGenerationalTenuringXenoDown && prev_tt > tt) {
+      uint new_tt = (tt + prev_tt)/2;
+      assert(new_tt >= tt, "Undershoot error");
+      assert(new_tt < prev_tt, "Stuck at error");
+      if (new_tt > tt) {
+        log_trace(gc, age)("Xeno'd: %d -> (%d) -> %d", prev_tt, new_tt, tt);
+        tt = new_tt;
+      }
+    }
     _tenuring_threshold[_epoch] = tt;
   }
   print();

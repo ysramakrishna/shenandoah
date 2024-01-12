@@ -445,8 +445,7 @@ public:
   inline size_t get_promotable_humongous_regions() { return _promotable_humongous_regions; }
   inline size_t get_regular_regions_promoted_in_place() { return _regular_regions_promoted_in_place; }
 
-  // Returns previous value
-  inline size_t set_promoted_reserve(size_t new_val);
+  inline void set_promoted_reserve(size_t new_val);
   inline size_t get_promoted_reserve() const;
   inline void augment_promo_reserve(size_t increment);
 
@@ -455,13 +454,12 @@ public:
   inline size_t unexpend_promoted(size_t decrement);
   inline size_t get_promoted_expended();
 
-  // Returns previous value
-  inline size_t set_old_evac_reserve(size_t new_val);
+  inline void set_old_evac_reserve(size_t new_val);
   inline size_t get_old_evac_reserve() const;
   inline void augment_old_evac_reserve(size_t increment);
 
-  // Returns previous value
-  inline size_t set_young_evac_reserve(size_t new_val);
+  inline void set_young_evac_reserve(size_t new_val);
+  inline void update_young_evac_reserve(size_t new_val);
   inline size_t get_young_evac_reserve() const;
 
   // Return the age census object for young gen (in generational mode)

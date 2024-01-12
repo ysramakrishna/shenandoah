@@ -330,6 +330,7 @@ void ShenandoahGeneration::compute_evacuation_budgets(ShenandoahHeap* const heap
   // Preselect regions for promotion by evacuation (obtaining the live data to seed promoted_reserve),
   // and identify regions that will promote in place. These use the tenuring threshold.
   size_t consumed_by_advance_promotion = select_aged_regions(old_promo_reserve);
+  assert(consumed_by_advance_promotion <= old_promo_reserve, "Cannot promote more than available old-gen memory");
   assert(consumed_by_advance_promotion <= maximum_old_evacuation_reserve, "Cannot promote more than available old-gen memory");
 
   // Note that unused old_promo_reserve might not be entirely consumed_by_advance_promotion.  Do not transfer this
@@ -392,7 +393,7 @@ void ShenandoahGeneration::adjust_evacuation_budgets(ShenandoahHeap* const heap,
 
   size_t total_young_available = young_generation->available_with_reserve();
   assert(young_evacuated_reserve_used <= total_young_available, "Cannot evacuate more than is available in young");
-  heap->set_young_evac_reserve(young_evacuated_reserve_used);
+  heap->update_young_evac_reserve(young_evacuated_reserve_used);   // We'll overwrite previous value
 
   size_t old_available = old_generation->available();
   // Now that we've established the collection set, we know how much memory is really required by old-gen for evacuation

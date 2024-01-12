@@ -765,20 +765,18 @@ inline bool ShenandoahHeap::is_aging_cycle() const {
   return _is_aging_cycle.is_set();
 }
 
-inline size_t ShenandoahHeap::set_promoted_reserve(size_t new_val) {
-  size_t orig = _promoted_reserve;
+inline void ShenandoahHeap::set_promoted_reserve(size_t new_val) {
+  assert(_promoted_reserve == 0 || new_val ==0, "Over-writing");
   _promoted_reserve = new_val;
-  return orig;
 }
 
 inline size_t ShenandoahHeap::get_promoted_reserve() const {
   return _promoted_reserve;
 }
 
-inline size_t ShenandoahHeap::set_old_evac_reserve(size_t new_val) {
-  size_t orig = _old_evac_reserve;
+inline void ShenandoahHeap::set_old_evac_reserve(size_t new_val) {
+  assert(_old_evac_reserve == 0 || new_val == 0, "Over-writing");
   _old_evac_reserve = new_val;
-  return orig;
 }
 
 inline size_t ShenandoahHeap::get_old_evac_reserve() const {
@@ -809,10 +807,15 @@ inline size_t ShenandoahHeap::get_promoted_expended() {
   return Atomic::load(&_promoted_expended);
 }
 
-inline size_t ShenandoahHeap::set_young_evac_reserve(size_t new_val) {
-  size_t orig = _young_evac_reserve;
+inline void ShenandoahHeap::set_young_evac_reserve(size_t new_val) {
+  assert(_young_evac_reserve == 0 || new_val == 0, "Over-writing");
   _young_evac_reserve = new_val;
-  return orig;
+}
+
+inline void ShenandoahHeap::update_young_evac_reserve(size_t new_val) {
+  // We allow overwrite of an existing value
+  assert(_young_evac_reserve != 0 && new_val != 0, "Use set_ instead of update_");
+  _young_evac_reserve = new_val;
 }
 
 inline size_t ShenandoahHeap::get_young_evac_reserve() const {

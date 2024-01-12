@@ -73,8 +73,8 @@ void ShenandoahGenerationalHeuristics::choose_collection_set(ShenandoahCollectio
   // This counts bytes of memory used by regular regions to be promoted in place.
   size_t regular_regions_promoted_usage = 0;
 
-  for (size_t i = 0; i < num_regions; i++) {
-    ShenandoahHeapRegion* region = heap->get_region(i);
+  for (size_t r_idx = 0; r_idx < num_regions; r_idx++) {
+    ShenandoahHeapRegion* region = heap->get_region(r_idx);
     if (!_generation->contains(region)) {
       continue;
     }
@@ -92,7 +92,7 @@ void ShenandoahGenerationalHeuristics::choose_collection_set(ShenandoahCollectio
       } else {
         bool is_candidate;
         // This is our candidate for later consideration.
-        if (collection_set->is_preselected(i)) {
+        if (collection_set->is_preselected(r_idx)) {
           assert(region->age() >= tenuring_threshold, "Preselection filter");
           is_candidate = true;
           preselected_candidates++;
@@ -166,14 +166,14 @@ void ShenandoahGenerationalHeuristics::choose_collection_set(ShenandoahCollectio
 
   size_t immediate_percent = (total_garbage == 0) ? 0 : (immediate_garbage * 100 / total_garbage);
 
-  bool doing_promote_in_place = (humongous_regions_promoted + regular_regions_promoted_in_place > 0);
+  bool doing_promote_in_place = (humongous_regions_promoted + regular_regions_promoted_in_place) > 0;
   if (doing_promote_in_place || (preselected_candidates > 0) || (immediate_percent <= ShenandoahImmediateThreshold)) {
     // Only young collections need to prime the collection set.
     if (_generation->is_young()) {
       heap->old_heuristics()->prime_collection_set(collection_set);
     }
 
-    // Call the subclasses to add young-gen regions into the collection set.
+    // Add young-gen regions into the collection set.
     choose_collection_set_from_regiondata(collection_set, candidates, cand_idx, immediate_garbage + free);
   }
 

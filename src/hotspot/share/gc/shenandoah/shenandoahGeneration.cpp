@@ -227,34 +227,33 @@ void ShenandoahGeneration::prepare_gc() {
 void ShenandoahGeneration::compute_evacuation_budgets(ShenandoahHeap* const heap) {
 
   size_t region_size_bytes = ShenandoahHeapRegion::region_size_bytes();
-  size_t regions_available_to_loan = 0;
   size_t minimum_evacuation_reserve = ShenandoahOldCompactionReserve * region_size_bytes;
   size_t old_regions_loaned_for_young_evac = 0;
 
   ShenandoahGeneration* const old_generation = heap->old_generation();
   ShenandoahYoungGeneration* const young_generation = heap->young_generation();
 
-  // During initialization and phase changes, it is more likely that fewer objects die young and old-gen
+  // 1. During initialization and phase changes, it is more likely that fewer objects die young and old-gen
   // memory is not yet full (or is in the process of being replaced).  During these times especially, it
   // is beneficial to loan memory from old-gen to young-gen during the evacuation and update-refs phases
   // of execution.
-
-  // Calculate EvacuationReserve before PromotionReserve.  Evacuation is more critical than promotion.
+  //
+  // 2. Calculate EvacuationReserve before PromotionReserve.  Evacuation is more critical than promotion.
   // If we cannot evacuate old-gen, we will not be able to reclaim old-gen memory.  Promotions are less
   // critical.  If we cannot promote, there may be degradation of young-gen memory because old objects
   // accumulate there until they can be promoted.  This increases the young-gen marking and evacuation work.
-
-  // Do not fill up old-gen memory with promotions.  Reserve some amount of memory for compaction purposes.
-  size_t young_evac_reserve_max = 0;
+  // In other words,do not fill up old-gen memory with promotions.  Reserve some amount of memory for old
+  // gen compaction purposes.
 
   // First priority is to reclaim the easy garbage out of young-gen.
-
-  // maximum_young_evacuation_reserve is upper bound on memory to be evacuated out of young
+  //
+  // maximum_young_evacuation_reserve is upper bound on memory to be evacuated out of young; we want to
+  // bound this to ShenandoahEvacReserve of young capacity, clamped to what's available now.
   const size_t maximum_young_evacuation_reserve = (young_generation->max_capacity() * ShenandoahEvacReserve) / 100;
   const size_t young_evacuation_reserve = MIN2(maximum_young_evacuation_reserve, young_generation->available_with_reserve());
 
-  // maximum_old_evacuation_reserve is an upper bound on memory evacuated from old and evacuated to old (promoted),
-  // clamped by the old generation space available.
+  // maximum_old_evacuation_reserve is an upper bound on memory we plan to evacuate from old regions or
+  // promote from young regions, clamped by the old generation space available.
   //
   // Here's the algebra.
   // Let SOEP = ShenandoahOldEvacRatioPercent,
@@ -700,12 +699,14 @@ void ShenandoahGeneration::prepare_regions_and_collection_set(bool concurrent) {
       // non-empty regions that are not selected as part of the collection set can be allocated by the mutator while
       // GC is evacuating and updating references.
 
-      // Find the amount that will be promoted, regions that will be promoted in
-      // place, and preselect older regions that will be promoted by evacuation.
+      // Find the amount that will be promoted, older regions that will be promoted in
+      // place, and preselect older regions that will be promoted by evacuation. The amount
+      // promoted may be larger than the current estimate because objects may be promoted from
+      // younger regions in the collection set that have older objects.
       compute_evacuation_budgets(heap);
 
-      // Choose the collection set, including the regions preselected above for
-      // promotion into the old generation.
+      // Choose the collection set, including the older regions preselected above for
+      // promotion into the old generation, either by promotion in place or by evacuation.
       _heuristics->choose_collection_set(collection_set);
       if (!collection_set->is_empty()) {
         // only make use of evacuation budgets when we are evacuating

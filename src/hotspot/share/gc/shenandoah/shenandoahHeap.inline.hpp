@@ -770,6 +770,12 @@ inline void ShenandoahHeap::set_promoted_reserve(size_t new_val) {
   _promoted_reserve = new_val;
 }
 
+inline void ShenandoahHeap::update_promoted_reserve(size_t new_val) {
+  // We allow overwrite of an existing value
+  assert(_promoted_reserve != 0 && new_val != 0, "Use set_ instead of update_");
+  _promoted_reserve = new_val;
+}
+
 inline size_t ShenandoahHeap::get_promoted_reserve() const {
   return _promoted_reserve;
 }

@@ -457,7 +457,7 @@ void ShenandoahGeneration::adjust_evacuation_budgets(ShenandoahHeap* const heap,
   // Add in the excess_old memory to hold unanticipated promotions, if any.  If there are more unanticipated
   // promotions than fit in reserved memory, they will be deferred until a future GC pass.
   size_t total_promotion_reserve = young_advance_promoted_reserve_used + excess_old;
-  heap->set_promoted_reserve(total_promotion_reserve);
+  heap->update_promoted_reserve(total_promotion_reserve);
   heap->reset_promoted_expended();
 }
 

@@ -447,6 +447,7 @@ public:
 
   inline void set_promoted_reserve(size_t new_val);
   inline size_t get_promoted_reserve() const;
+  inline void update_promoted_reserve(size_t new_val);
   inline void augment_promo_reserve(size_t increment);
 
   inline void reset_promoted_expended();

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2024, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2021, 2022, Red Hat, Inc. All rights reserved.
  * Copyright Amazon.com Inc. or its affiliates. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
@@ -33,6 +34,7 @@
 #include "gc/shenandoah/shenandoahConcurrentGC.hpp"
 #include "gc/shenandoah/shenandoahFreeSet.hpp"
 #include "gc/shenandoah/shenandoahGeneration.hpp"
+#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 #include "gc/shenandoah/shenandoahOldGeneration.hpp"
 #include "gc/shenandoah/shenandoahYoungGeneration.hpp"
 #include "gc/shenandoah/shenandoahLock.hpp"
@@ -140,16 +142,13 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
   // Complete marking under STW, and start evacuation
   vmop_entry_final_mark();
 
-  // If GC was cancelled before final mark, then the safepoint operation will do nothing
-  // and the concurrent mark will still be in progress. In this case it is safe to resume
-  // the degenerated cycle from the marking phase. On the other hand, if the GC is cancelled
-  // after final mark (but before this check), then the final mark safepoint operation
-  // will have finished the mark (setting concurrent mark in progress to false). Final mark
-  // will also have setup state (in concurrent stack processing) that will not be safe to
-  // resume from the marking phase in the degenerated cycle. That is, if the cancellation
-  // occurred after final mark, we must resume the degenerated cycle after the marking phase.
-  if (_generation->is_concurrent_mark_in_progress() && check_cancellation_and_abort(ShenandoahDegenPoint::_degenerated_mark)) {
-    assert(!heap->is_concurrent_weak_root_in_progress(), "Weak roots should not be in progress when concurrent mark is in progress");
+  // If the GC was cancelled before final mark, nothing happens on the safepoint. We are still
+  // in the marking phase and must resume the degenerated cycle from there. If the GC was cancelled
+  // after final mark, then we've entered the evacuation phase and must resume the degenerated cycle
+  // from that phase.
+  if (_generation->is_concurrent_mark_in_progress()) {
+    bool cancelled = check_cancellation_and_abort(ShenandoahDegenPoint::_degenerated_mark);
+    assert(cancelled, "GC must have been cancelled between concurrent and final mark");
     return false;
   }
 
@@ -169,12 +168,7 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
   // we will not age young-gen objects in the case that we skip evacuation.
   entry_cleanup_early();
 
-  {
-    // TODO: Not sure there is value in logging free-set status right here.  Note that whenever the free set is rebuilt,
-    // it logs the newly rebuilt status.
-    ShenandoahHeapLocker locker(heap->lock());
-    heap->free_set()->log_status();
-  }
+  heap->free_set()->log_status_under_lock();
 
   // Perform concurrent class unloading
   if (heap->unload_classes() &&
@@ -230,47 +224,7 @@ bool ShenandoahConcurrentGC::collect(GCCause::Cause cause) {
   // We defer generation resizing actions until after cset regions have been recycled.  We do this even following an
   // abbreviated cycle.
   if (heap->mode()->is_generational()) {
-    bool success;
-    size_t region_xfer;
-    const char* region_destination;
-    ShenandoahYoungGeneration* young_gen = heap->young_generation();
-    ShenandoahGeneration* old_gen = heap->old_generation();
-    {
-      ShenandoahHeapLocker locker(heap->lock());
-
-      size_t old_region_surplus = heap->get_old_region_surplus();
-      size_t old_region_deficit = heap->get_old_region_deficit();
-      if (old_region_surplus) {
-        success = heap->generation_sizer()->transfer_to_young(old_region_surplus);
-        region_destination = "young";
-        region_xfer = old_region_surplus;
-      } else if (old_region_deficit) {
-        success = heap->generation_sizer()->transfer_to_old(old_region_deficit);
-        region_destination = "old";
-        region_xfer = old_region_deficit;
-        if (!success) {
-          ((ShenandoahOldHeuristics *) old_gen->heuristics())->trigger_cannot_expand();
-        }
-      } else {
-        region_destination = "none";
-        region_xfer = 0;
-        success = true;
-      }
-      heap->set_old_region_surplus(0);
-      heap->set_old_region_deficit(0);
-      heap->set_young_evac_reserve(0);
-      heap->set_old_evac_reserve(0);
-      heap->set_promoted_reserve(0);
-    }
-
-    // Report outside the heap lock
-    size_t young_available = young_gen->available();
-    size_t old_available = old_gen->available();
-    log_info(gc, ergo)("After cleanup, %s " SIZE_FORMAT " regions to %s to prepare for next gc, old available: "
-                       SIZE_FORMAT "%s, young_available: " SIZE_FORMAT "%s",
-                       success? "successfully transferred": "failed to transfer", region_xfer, region_destination,
-                       byte_size_in_proper_unit(old_available), proper_unit_for_byte_size(old_available),
-                       byte_size_in_proper_unit(young_available), proper_unit_for_byte_size(young_available));
+    ShenandoahGenerationalHeap::heap()->complete_concurrent_cycle();
   }
   return true;
 }
@@ -654,13 +608,13 @@ void ShenandoahConcurrentGC::op_init_mark() {
     }
 
     if (_generation->is_global()) {
-      heap->cancel_old_gc();
+      heap->old_generation()->cancel_gc();
     } else if (heap->is_concurrent_old_mark_in_progress()) {
       // Purge the SATB buffers, transferring any valid, old pointers to the
       // old generation mark queue. Any pointers in a young region will be
       // abandoned.
       ShenandoahGCPhase phase(ShenandoahPhaseTimings::init_transfer_satb);
-      heap->transfer_old_pointers_from_satb();
+      heap->old_generation()->transfer_pointers_from_satb();
     }
   }
 
@@ -677,6 +631,7 @@ void ShenandoahConcurrentGC::op_init_mark() {
   start_mark();
 
   if (_do_old_gc_bootstrap) {
+    shenandoah_assert_generational();
     // Update region state for both young and old regions
     // TODO: We should be able to pull this out of the safepoint for the bootstrap
     // cycle. The top of an old region will only move when a GC cycle evacuates
@@ -764,140 +719,100 @@ void ShenandoahConcurrentGC::op_final_mark() {
     // Has to be done after cset selection
     heap->prepare_concurrent_roots();
 
-    if (heap->mode()->is_generational()) {
-      size_t humongous_regions_promoted = heap->get_promotable_humongous_regions();
-      size_t regular_regions_promoted_in_place = heap->get_regular_regions_promoted_in_place();
-      if (!heap->collection_set()->is_empty() || (humongous_regions_promoted + regular_regions_promoted_in_place > 0)) {
-        // Even if the collection set is empty, we need to do evacuation if there are regions to be promoted in place.
-        // Concurrent evacuation takes responsibility for registering objects and setting the remembered set cards to dirty.
+    if (!heap->collection_set()->is_empty() || has_in_place_promotions(heap)) {
+      // Even if the collection set is empty, we need to do evacuation if there are regions to be promoted in place.
+      // Concurrent evacuation takes responsibility for registering objects and setting the remembered set cards to dirty.
 
-        LogTarget(Debug, gc, cset) lt;
-        if (lt.is_enabled()) {
-          ResourceMark rm;
-          LogStream ls(lt);
-          heap->collection_set()->print_on(&ls);
-        }
-
-        if (ShenandoahVerify) {
-          heap->verifier()->verify_before_evacuation();
-        }
-
-        heap->set_evacuation_in_progress(true);
-
-        // Verify before arming for concurrent processing.
-        // Otherwise, verification can trigger stack processing.
-        if (ShenandoahVerify) {
-          heap->verifier()->verify_during_evacuation();
-        }
-
-        // Generational mode may promote objects in place during the evacuation phase.
-        // If that is the only reason we are evacuating, we don't need to update references
-        // and there will be no forwarded objects on the heap.
-        heap->set_has_forwarded_objects(!heap->collection_set()->is_empty());
-
-        // Arm nmethods/stack for concurrent processing
-        if (!heap->collection_set()->is_empty()) {
-          // Iff objects will be evaluated, arm the nmethod barriers. These will be disarmed
-          // under the same condition (established in prepare_concurrent_roots) after strong
-          // root evacuation has completed (see op_strong_roots).
-          ShenandoahCodeRoots::arm_nmethods_for_evac();
-          ShenandoahStackWatermark::change_epoch_id();
-        }
-
-        if (ShenandoahPacing) {
-          heap->pacer()->setup_for_evac();
-        }
-      } else {
-        if (ShenandoahVerify) {
-          heap->verifier()->verify_after_concmark();
-        }
-
-        if (VerifyAfterGC) {
-          Universe::verify();
-        }
+      LogTarget(Debug, gc, cset) lt;
+      if (lt.is_enabled()) {
+        ResourceMark rm;
+        LogStream ls(lt);
+        heap->collection_set()->print_on(&ls);
       }
-    } else {
-      // Not is_generational()
+
+      if (ShenandoahVerify) {
+        heap->verifier()->verify_before_evacuation();
+      }
+
+      // TODO: Do we need to set this if we are only promoting regions in place? We don't need the barriers on for that.
+      heap->set_evacuation_in_progress(true);
+
+      // Verify before arming for concurrent processing.
+      // Otherwise, verification can trigger stack processing.
+      if (ShenandoahVerify) {
+        heap->verifier()->verify_during_evacuation();
+      }
+
+      // Generational mode may promote objects in place during the evacuation phase.
+      // If that is the only reason we are evacuating, we don't need to update references
+      // and there will be no forwarded objects on the heap.
+      heap->set_has_forwarded_objects(!heap->collection_set()->is_empty());
+
+      // Arm nmethods/stack for concurrent processing
       if (!heap->collection_set()->is_empty()) {
-        LogTarget(Info, gc, ergo) lt;
-        if (lt.is_enabled()) {
-          ResourceMark rm;
-          LogStream ls(lt);
-          heap->collection_set()->print_on(&ls);
-        }
-
-        if (ShenandoahVerify) {
-          heap->verifier()->verify_before_evacuation();
-        }
-
-        heap->set_evacuation_in_progress(true);
-
-        // Verify before arming for concurrent processing.
-        // Otherwise, verification can trigger stack processing.
-        if (ShenandoahVerify) {
-          heap->verifier()->verify_during_evacuation();
-        }
-
-        // From here on, we need to update references.
-        heap->set_has_forwarded_objects(true);
-
-        // Arm nmethods/stack for concurrent processing
+        // Iff objects will be evaluated, arm the nmethod barriers. These will be disarmed
+        // under the same condition (established in prepare_concurrent_roots) after strong
+        // root evacuation has completed (see op_strong_roots).
         ShenandoahCodeRoots::arm_nmethods_for_evac();
         ShenandoahStackWatermark::change_epoch_id();
+      }
 
-        if (ShenandoahPacing) {
-          heap->pacer()->setup_for_evac();
-        }
-      } else {
-        if (ShenandoahVerify) {
-          heap->verifier()->verify_after_concmark();
-        }
+      if (ShenandoahPacing) {
+        heap->pacer()->setup_for_evac();
+      }
+    } else {
+      if (ShenandoahVerify) {
+        heap->verifier()->verify_after_concmark();
+      }
 
-        if (VerifyAfterGC) {
-          Universe::verify();
-        }
+      if (VerifyAfterGC) {
+        Universe::verify();
       }
     }
   }
 }
 
+bool ShenandoahConcurrentGC::has_in_place_promotions(ShenandoahHeap* heap) {
+  return heap->mode()->is_generational() && heap->old_generation()->has_in_place_promotions();
+}
+
+template<bool GENERATIONAL>
 class ShenandoahConcurrentEvacThreadClosure : public ThreadClosure {
 private:
   OopClosure* const _oops;
-
 public:
-  ShenandoahConcurrentEvacThreadClosure(OopClosure* oops);
-  void do_thread(Thread* thread);
+  explicit ShenandoahConcurrentEvacThreadClosure(OopClosure* oops) : _oops(oops) {}
+
+  void do_thread(Thread* thread) override {
+    JavaThread* const jt = JavaThread::cast(thread);
+    StackWatermarkSet::finish_processing(jt, _oops, StackWatermarkKind::gc);
+    if (GENERATIONAL) {
+      ShenandoahThreadLocalData::enable_plab_promotions(thread);
+    }
+  }
 };
 
-ShenandoahConcurrentEvacThreadClosure::ShenandoahConcurrentEvacThreadClosure(OopClosure* oops) :
-  _oops(oops) {
-}
-
-void ShenandoahConcurrentEvacThreadClosure::do_thread(Thread* thread) {
-  JavaThread* const jt = JavaThread::cast(thread);
-  StackWatermarkSet::finish_processing(jt, _oops, StackWatermarkKind::gc);
-  ShenandoahThreadLocalData::enable_plab_promotions(thread);
-}
-
+template<bool GENERATIONAL>
 class ShenandoahConcurrentEvacUpdateThreadTask : public WorkerTask {
 private:
   ShenandoahJavaThreadsIterator _java_threads;
 
 public:
-  ShenandoahConcurrentEvacUpdateThreadTask(uint n_workers) :
+  explicit ShenandoahConcurrentEvacUpdateThreadTask(uint n_workers) :
     WorkerTask("Shenandoah Evacuate/Update Concurrent Thread Roots"),
     _java_threads(ShenandoahPhaseTimings::conc_thread_roots, n_workers) {
   }
 
-  void work(uint worker_id) {
-    Thread* worker_thread = Thread::current();
-    ShenandoahThreadLocalData::enable_plab_promotions(worker_thread);
+  void work(uint worker_id) override {
+    if (GENERATIONAL) {
+      Thread* worker_thread = Thread::current();
+      ShenandoahThreadLocalData::enable_plab_promotions(worker_thread);
+    }
 
     // ShenandoahEvacOOMScope has to be setup by ShenandoahContextEvacuateUpdateRootsClosure.
     // Otherwise, may deadlock with watermark lock
     ShenandoahContextEvacuateUpdateRootsClosure oops_cl;
-    ShenandoahConcurrentEvacThreadClosure thr_cl(&oops_cl);
+    ShenandoahConcurrentEvacThreadClosure<GENERATIONAL> thr_cl(&oops_cl);
     _java_threads.threads_do(&thr_cl, worker_id);
   }
 };
@@ -906,8 +821,13 @@ void ShenandoahConcurrentGC::op_thread_roots() {
   ShenandoahHeap* const heap = ShenandoahHeap::heap();
   assert(heap->is_evacuation_in_progress(), "Checked by caller");
   ShenandoahGCWorkerPhase worker_phase(ShenandoahPhaseTimings::conc_thread_roots);
-  ShenandoahConcurrentEvacUpdateThreadTask task(heap->workers()->active_workers());
-  heap->workers()->run_task(&task);
+  if (heap->mode()->is_generational()) {
+    ShenandoahConcurrentEvacUpdateThreadTask<true> task(heap->workers()->active_workers());
+    heap->workers()->run_task(&task);
+  } else {
+    ShenandoahConcurrentEvacUpdateThreadTask<false> task(heap->workers()->active_workers());
+    heap->workers()->run_task(&task);
+  }
 }
 
 void ShenandoahConcurrentGC::op_weak_refs() {
@@ -945,6 +865,7 @@ void ShenandoahEvacUpdateCleanupOopStorageRootsClosure::do_oop(oop* p) {
   const oop obj = RawAccess<>::oop_load(p);
   if (!CompressedOops::is_null(obj)) {
     if (!_mark_context->is_marked(obj)) {
+      shenandoah_assert_generations_reconciled();
       if (_heap->is_in_active_generation(obj)) {
         // TODO: This worries me. Here we are asserting that an unmarked from-space object is 'correct'.
         // Normally, I would call this a bogus assert, but there seems to be a legitimate use-case for
@@ -1001,18 +922,9 @@ public:
     _vm_roots(phase),
     _cld_roots(phase, ShenandoahHeap::heap()->workers()->active_workers(), false /*heap iteration*/),
     _nmethod_itr(ShenandoahCodeRoots::table()),
-    _phase(phase) {
-    if (ShenandoahHeap::heap()->unload_classes()) {
-      MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-      _nmethod_itr.nmethods_do_begin();
-    }
-  }
+    _phase(phase) {}
 
   ~ShenandoahConcurrentWeakRootsEvacUpdateTask() {
-    if (ShenandoahHeap::heap()->unload_classes()) {
-      MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-      _nmethod_itr.nmethods_do_end();
-    }
     // Notify runtime data structures of potentially dead oops
     _vm_roots.report_num_dead();
   }
@@ -1068,6 +980,9 @@ void ShenandoahConcurrentGC::op_weak_roots() {
     ShenandoahTimingsTracker t(ShenandoahPhaseTimings::conc_weak_roots_rendezvous);
     heap->rendezvous_threads();
   }
+  // We can only toggle concurrent_weak_root_in_progress flag
+  // at a safepoint, so that mutators see a consistent
+  // value. The flag will be cleared at the next safepoint.
 }
 
 void ShenandoahConcurrentGC::op_class_unloading() {
@@ -1114,19 +1029,7 @@ public:
     _phase(phase),
     _vm_roots(phase),
     _cld_roots(phase, ShenandoahHeap::heap()->workers()->active_workers(), false /*heap iteration*/),
-    _nmethod_itr(ShenandoahCodeRoots::table()) {
-    if (!ShenandoahHeap::heap()->unload_classes()) {
-      MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-      _nmethod_itr.nmethods_do_begin();
-    }
-  }
-
-  ~ShenandoahConcurrentRootsEvacUpdateTask() {
-    if (!ShenandoahHeap::heap()->unload_classes()) {
-      MutexLocker mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-      _nmethod_itr.nmethods_do_end();
-    }
-  }
+    _nmethod_itr(ShenandoahCodeRoots::table()) {}
 
   void work(uint worker_id) {
     ShenandoahConcurrentWorkerSession worker_session(worker_id);
@@ -1232,6 +1135,13 @@ void ShenandoahConcurrentGC::op_final_updaterefs() {
     heap->verifier()->verify_roots_in_to_space();
   }
 
+  // If we are running in generational mode and this is an aging cycle, this will also age active
+  // regions that haven't been used for allocation.
+  heap->update_heap_region_states(true /*concurrent*/);
+
+  heap->set_update_refs_in_progress(false);
+  heap->set_has_forwarded_objects(false);
+
   if (heap->mode()->is_generational() && heap->is_concurrent_old_mark_in_progress()) {
     // When the SATB barrier is left on to support concurrent old gen mark, it may pick up writes to
     // objects in the collection set. After those objects are evacuated, the pointers in the
@@ -1247,17 +1157,12 @@ void ShenandoahConcurrentGC::op_final_updaterefs() {
     // We are not concerned about skipping this step in abbreviated cycles because regions
     // with no live objects cannot have been written to and so cannot have entries in the SATB
     // buffers.
-    heap->transfer_old_pointers_from_satb();
+    heap->old_generation()->transfer_pointers_from_satb();
+
+    // Aging_cycle is only relevant during evacuation cycle for individual objects and during final mark for
+    // entire regions.  Both of these relevant operations occur before final update refs.
+    ShenandoahGenerationalHeap::heap()->set_aging_cycle(false);
   }
-
-  heap->update_heap_region_states(true /*concurrent*/);
-
-  heap->set_update_refs_in_progress(false);
-  heap->set_has_forwarded_objects(false);
-
-  // Aging_cycle is only relevant during evacuation cycle for individual objects and during final mark for
-  // entire regions.  Both of these relevant operations occur before final update refs.
-  heap->set_aging_cycle(false);
 
   if (ShenandoahVerify) {
     heap->verifier()->verify_after_updaterefs();
@@ -1281,21 +1186,11 @@ void ShenandoahConcurrentGC::op_final_roots() {
     // the last GC safepoint before concurrent marking of old resumes. We must be sure
     // that old mark threads don't see any pointers to garbage in the SATB buffers.
     if (heap->is_concurrent_old_mark_in_progress()) {
-      heap->transfer_old_pointers_from_satb();
+      heap->old_generation()->transfer_pointers_from_satb();
     }
 
-    ShenandoahMarkingContext *ctx = heap->complete_marking_context();
-    for (size_t i = 0; i < heap->num_regions(); i++) {
-      ShenandoahHeapRegion *r = heap->get_region(i);
-      if (r->is_active() && r->is_young()) {
-        HeapWord* tams = ctx->top_at_mark_start(r);
-        HeapWord* top = r->top();
-        if (top > tams) {
-          r->reset_age();
-        } else if (heap->is_aging_cycle()) {
-          r->increment_age();
-        }
-      }
+    if (!_generation->is_old()) {
+      ShenandoahGenerationalHeap::heap()->update_region_ages(_generation->complete_marking_context());
     }
   }
 }

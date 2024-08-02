@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012 Red Hat, Inc.
+ * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2024 Red Hat, Inc.
  * Copyright (c) 2021, Azul Systems, Inc. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -928,6 +928,11 @@ static void jni_invoke_nonstatic(JNIEnv *env, JavaValue* result, jobject receive
       Klass* k = h_recv->klass();
       selected_method = InstanceKlass::cast(k)->method_at_itable(holder, itbl_index, CHECK);
     }
+  }
+
+  if (selected_method->is_abstract()) {
+    ResourceMark rm(THREAD);
+    THROW_MSG(vmSymbols::java_lang_AbstractMethodError(), selected_method->name()->as_C_string());
   }
 
   methodHandle method(THREAD, selected_method);
@@ -3770,7 +3775,7 @@ static jint attach_current_thread(JavaVM *vm, void **penv, void *_args, bool dae
 
   // Create a thread and mark it as attaching so it will be skipped by the
   // ThreadsListEnumerator - see CR 6404306
-  JavaThread* thread = new JavaThread(true);
+  JavaThread* thread = JavaThread::create_attaching_thread();
 
   // Set correct safepoint info. The thread is going to call into Java when
   // initializing the Java level thread object. Hence, the correct state must

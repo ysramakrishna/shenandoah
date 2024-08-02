@@ -132,7 +132,7 @@ bool methodOper::cmp( const MachOper &oper ) const {
 //------------------------------MachNode---------------------------------------
 
 //------------------------------emit-------------------------------------------
-void MachNode::emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const {
+void MachNode::emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const {
   #ifdef ASSERT
   tty->print("missing MachNode emit function: ");
   dump();
@@ -395,7 +395,14 @@ const class TypePtr *MachNode::adr_type() const {
     // 32-bit unscaled narrow oop can be the base of any address expression
     t = t->make_ptr();
   }
-  if (t->isa_intptr_t() && offset != 0 && offset != Type::OffsetBot) {
+
+  if (t->isa_intptr_t() &&
+#if !defined(AARCH64)
+      // AArch64 supports the addressing mode:
+      // [base, 0], in which [base] is converted from a long value
+      offset != 0 &&
+#endif
+      offset != Type::OffsetBot) {
     // We cannot assert that the offset does not look oop-ish here.
     // Depending on the heap layout the cardmark base could land
     // inside some oopish region.  It definitely does for Win2K.
@@ -548,6 +555,11 @@ void MachNode::dump_spec(outputStream *st) const {
     if( C->alias_type(t)->is_volatile() )
       st->print(" Volatile!");
   }
+  if (barrier_data() != 0) {
+    st->print(" barrier(");
+    BarrierSet::barrier_set()->barrier_set_c2()->dump_barrier_data(this, st);
+    st->print(") ");
+  }
 }
 
 //------------------------------dump_format------------------------------------
@@ -560,15 +572,11 @@ void MachNode::dump_format(PhaseRegAlloc *ra, outputStream *st) const {
 //=============================================================================
 #ifndef PRODUCT
 void MachTypeNode::dump_spec(outputStream *st) const {
+  MachNode::dump_spec(st);
   if (_bottom_type != nullptr) {
     _bottom_type->dump_on(st);
   } else {
     st->print(" null");
-  }
-  if (barrier_data() != 0) {
-    st->print(" barrier(");
-    BarrierSet::barrier_set()->barrier_set_c2()->dump_barrier_data(this, st);
-    st->print(")");
   }
 }
 #endif
@@ -604,7 +612,7 @@ void MachNullCheckNode::format( PhaseRegAlloc *ra_, outputStream *st ) const {
 }
 #endif
 
-void MachNullCheckNode::emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const {
+void MachNullCheckNode::emit(C2_MacroAssembler *masm, PhaseRegAlloc *ra_) const {
   // only emits entries in the null-pointer exception handler table
 }
 void MachNullCheckNode::label_set(Label* label, uint block_num) {

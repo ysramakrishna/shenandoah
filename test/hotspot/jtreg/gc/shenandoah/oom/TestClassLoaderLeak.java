@@ -100,9 +100,7 @@ public class TestClassLoaderLeak {
         pbArgs.add(TestClassLoaderLeak.class.getName());
         pbArgs.add("test");
 
-        ProcessBuilder pb = ProcessTools.createLimitedTestJavaProcessBuilder(pbArgs.toArray(new String[0]));
-
-        OutputAnalyzer analyzer = new OutputAnalyzer(pb.start());
+        OutputAnalyzer analyzer = ProcessTools.executeLimitedTestJava(pbArgs.toArray(new String[0]));
 
         if (shouldPass) {
             analyzer.shouldHaveExitValue(0);
@@ -127,7 +125,6 @@ public class TestClassLoaderLeak {
 
         String[][][] modeHeuristics = new String[][][] {
              {{"satb"},         {"adaptive", "compact", "static", "aggressive"}},
-             {{"iu"},           {"adaptive", "aggressive"}},
              {{"passive"},      {"passive"}},
              {{"generational"}, {"adaptive"}}
         };

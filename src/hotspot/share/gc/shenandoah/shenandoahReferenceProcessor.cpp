@@ -30,6 +30,7 @@
 #include "gc/shenandoah/shenandoahGeneration.hpp"
 #include "gc/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc/shenandoah/shenandoahReferenceProcessor.hpp"
+#include "gc/shenandoah/shenandoahScanRemembered.inline.hpp"
 #include "gc/shenandoah/shenandoahThreadLocalData.hpp"
 #include "gc/shenandoah/shenandoahUtils.hpp"
 #include "runtime/atomic.hpp"
@@ -61,9 +62,9 @@ static const char* reference_type_name(ReferenceType type) {
 
 template <typename T>
 static void card_mark_barrier(T* field, oop value) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  assert(heap->is_in_or_null(value), "Should be in heap");
   assert(ShenandoahCardBarrier, "Card-mark barrier should be on");
+  ShenandoahGenerationalHeap* heap = ShenandoahGenerationalHeap::heap();
+  assert(heap->is_in_or_null(value), "Should be in heap");
   if (heap->is_in_old(field) && heap->is_in_young(value)) {
     // For Shenandoah, each generation collects all the _referents_ that belong to the
     // collected generation. We can end up with discovered lists that contain a mixture
@@ -72,7 +73,7 @@ static void card_mark_barrier(T* field, oop value) {
     // list may result in the creation of _new_ old-to-young pointers which must dirty
     // the corresponding card. Failing to do this may cause heap verification errors and
     // lead to incorrect GC behavior.
-    heap->card_scan()->mark_card_as_dirty(reinterpret_cast<HeapWord*>(field));
+    heap->old_generation()->mark_card_as_dirty(field);
   }
 }
 
@@ -385,7 +386,6 @@ bool ShenandoahReferenceProcessor::discover(oop reference, ReferenceType type, u
     // and that other thread will place reference on its discovered list, so I can ignore reference.
 
     // In case we have created an interesting pointer, mark the remembered set card as dirty.
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
     if (ShenandoahCardBarrier) {
       T* addr = reinterpret_cast<T*>(java_lang_ref_Reference::discovered_addr_raw(reference));
       card_mark_barrier(addr, discovered_head);
@@ -409,7 +409,7 @@ bool ShenandoahReferenceProcessor::discover_reference(oop reference, ReferenceTy
   log_trace(gc, ref)("Encountered Reference: " PTR_FORMAT " (%s, %s)",
           p2i(reference), reference_type_name(type), ShenandoahHeap::heap()->heap_region_containing(reference)->affiliation_name());
   uint worker_id = WorkerThread::worker_id();
-  _ref_proc_thread_locals->inc_encountered(type);
+  _ref_proc_thread_locals[worker_id].inc_encountered(type);
 
   if (UseCompressedOops) {
     return discover<narrowOop>(reference, type, worker_id);
@@ -435,7 +435,7 @@ oop ShenandoahReferenceProcessor::drop(oop reference, ReferenceType type) {
   // evacuation begins so card does not need to be dirtied.
   if (heap->mode()->is_generational() && heap->is_in_old(reference) && heap->is_in_young(referent)) {
     // Note: would be sufficient to mark only the card that holds the start of this Reference object.
-    heap->card_scan()->mark_range_as_dirty(cast_from_oop<HeapWord*>(reference), reference->size());
+    heap->old_generation()->card_scan()->mark_range_as_dirty(cast_from_oop<HeapWord*>(reference), reference->size());
   }
   return next;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2024, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2014, 2020, Red Hat Inc. All rights reserved.
  * Copyright (c) 2020, 2023, Huawei Technologies Co., Ltd. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
@@ -51,7 +51,6 @@
 #endif
 
 NEEDS_CLEANUP // remove this definitions ?
-const Register IC_Klass    = t1;    // where the IC klass is cached
 const Register SYNC_header = x10;   // synchronization header
 const Register SHIFT_count = x10;   // where count for shift operations must be
 
@@ -136,7 +135,7 @@ static jlong as_long(LIR_Opr data) {
 Address LIR_Assembler::as_Address(LIR_Address* addr, Register tmp) {
   if (addr->base()->is_illegal()) {
     assert(addr->index()->is_illegal(), "must be illegal too");
-    __ movptr(tmp, addr->disp());
+    __ movptr(tmp, (address)addr->disp());
     return Address(tmp, 0);
   }
 
@@ -265,26 +264,7 @@ void LIR_Assembler::osr_entry() {
 
 // inline cache check; done before the frame is built.
 int LIR_Assembler::check_icache() {
-  Register receiver = FrameMap::receiver_opr->as_register();
-  Register ic_klass = IC_Klass;
-  int start_offset = __ offset();
-  Label dont;
-  __ inline_cache_check(receiver, ic_klass, dont);
-
-  // if icache check fails, then jump to runtime routine
-  // Note: RECEIVER must still contain the receiver!
-  __ far_jump(RuntimeAddress(SharedRuntime::get_ic_miss_stub()));
-
-  // We align the verified entry point unless the method body
-  // (including its inline cache check) will fit in a single 64-byte
-  // icache line.
-  if (!method()->is_accessor() || __ offset() - start_offset > 4 * 4) {
-    // force alignment after the cache check.
-    __ align(CodeEntryAlignment);
-  }
-
-  __ bind(dont);
-  return start_offset;
+  return __ ic_check(CodeEntryAlignment);
 }
 
 void LIR_Assembler::jobject2reg(jobject o, Register reg) {
@@ -1040,10 +1020,11 @@ void LIR_Assembler::emit_alloc_array(LIR_OpAllocArray* op) {
                       len,
                       tmp1,
                       tmp2,
-                      arrayOopDesc::header_size(op->type()),
+                      arrayOopDesc::base_offset_in_bytes(op->type()),
                       array_element_size(op->type()),
                       op->klass()->as_register(),
-                      *op->stub()->entry());
+                      *op->stub()->entry(),
+                      op->zero_array());
   }
   __ bind(*op->stub()->continuation());
 }
@@ -1365,7 +1346,7 @@ void LIR_Assembler::align_call(LIR_Code code) {
 }
 
 void LIR_Assembler::call(LIR_OpJavaCall* op, relocInfo::relocType rtype) {
-  address call = __ trampoline_call(Address(op->addr(), rtype));
+  address call = __ reloc_call(Address(op->addr(), rtype));
   if (call == nullptr) {
     bailout("trampoline stub overflow");
     return;
@@ -1398,7 +1379,7 @@ void LIR_Assembler::emit_static_call_stub() {
   __ relocate(static_stub_Relocation::spec(call_pc));
   __ emit_static_call_stub();
 
-  assert(__ offset() - start + CompiledStaticCall::to_trampoline_stub_size()
+  assert(__ offset() - start + CompiledDirectCall::to_trampoline_stub_size()
          <= call_stub_size(), "stub too big");
   __ end_a_stub();
 }
@@ -1626,7 +1607,22 @@ void LIR_Assembler::monitor_address(int monitor_no, LIR_Opr dst) {
   __ la(dst->as_register(), frame_map()->address_for_monitor_lock(monitor_no));
 }
 
-void LIR_Assembler::emit_updatecrc32(LIR_OpUpdateCRC32* op) { Unimplemented(); }
+void LIR_Assembler::emit_updatecrc32(LIR_OpUpdateCRC32* op) {
+  assert(op->crc()->is_single_cpu(),  "crc must be register");
+  assert(op->val()->is_single_cpu(),  "byte value must be register");
+  assert(op->result_opr()->is_single_cpu(), "result must be register");
+  Register crc = op->crc()->as_register();
+  Register val = op->val()->as_register();
+  Register res = op->result_opr()->as_register();
+
+  assert_different_registers(val, crc, res);
+  __ la(res, ExternalAddress(StubRoutines::crc_table_addr()));
+
+  __ notr(crc, crc); // ~crc
+  __ zero_extend(crc, crc, 32);
+  __ update_byte_crc32(crc, val, res);
+  __ notr(res, crc); // ~crc
+}
 
 void LIR_Assembler::check_conflict(ciKlass* exact_klass, intptr_t current_klass,
                                    Register tmp, Label &next, Label &none,
@@ -1861,17 +1857,7 @@ void LIR_Assembler::leal(LIR_Opr addr, LIR_Opr dest, LIR_PatchCode patch_code, C
 void LIR_Assembler::rt_call(LIR_Opr result, address dest, const LIR_OprList* args, LIR_Opr tmp, CodeEmitInfo* info) {
   assert(!tmp->is_valid(), "don't need temporary");
 
-  CodeBlob *cb = CodeCache::find_blob(dest);
-  if (cb != nullptr) {
-    __ far_call(RuntimeAddress(dest));
-  } else {
-    RuntimeAddress target(dest);
-    __ relocate(target.rspec(), [&] {
-      int32_t offset;
-      __ movptr(t0, target.target(), offset);
-      __ jalr(x1, t0, offset);
-    });
-  }
+  __ rt_call(dest);
 
   if (info != nullptr) {
     add_call_info_here(info);

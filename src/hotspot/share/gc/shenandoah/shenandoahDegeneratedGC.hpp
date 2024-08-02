@@ -62,9 +62,12 @@ private:
   void op_degenerated_futile();
   void op_degenerated_fail();
 
+  // Turns this degenerated cycle into a full gc without leaving the safepoint
   void upgrade_to_full();
 
   const char* degen_event_message(ShenandoahDegenPoint point) const;
+
+  bool has_in_place_promotions(const ShenandoahHeap* heap) const;
 };
 
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHDEGENERATEDGC_HPP

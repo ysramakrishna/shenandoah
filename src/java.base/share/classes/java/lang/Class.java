@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1994, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,7 +55,9 @@ import java.lang.reflect.TypeVariable;
 import java.lang.constant.Constable;
 import java.net.URL;
 import java.security.AccessController;
+import java.security.Permissions;
 import java.security.PrivilegedAction;
+import java.security.ProtectionDomain;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -70,6 +72,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import jdk.internal.constant.ConstantUtils;
 import jdk.internal.javac.PreviewFeature;
 import jdk.internal.loader.BootLoader;
 import jdk.internal.loader.BuiltinClassLoader;
@@ -261,7 +264,8 @@ public final class Class<T> implements java.io.Serializable,
 
     /**
      * Returns a string describing this {@code Class}, including
-     * information about modifiers and type parameters.
+     * information about modifiers, {@link #isSealed() sealed}/{@code
+     * non-sealed} status, and type parameters.
      *
      * The string is formatted as a list of type modifiers, if any,
      * followed by the kind of type (empty string for primitive types
@@ -314,6 +318,11 @@ public final class Class<T> implements java.io.Serializable,
                     sb.append(' ');
                 }
 
+                // A class cannot be strictfp and sealed/non-sealed so
+                // it is sufficient to check for sealed-ness after all
+                // modifiers are printed.
+                addSealingInfo(modifiers, sb);
+
                 if (isAnnotation()) {
                     sb.append('@');
                 }
@@ -342,6 +351,49 @@ public final class Class<T> implements java.io.Serializable,
 
             return sb.toString();
         }
+    }
+
+    private void addSealingInfo(int modifiers, StringBuilder sb) {
+        // A class can be final XOR sealed XOR non-sealed.
+        if (Modifier.isFinal(modifiers)) {
+            return; // no-op
+        } else {
+            if (isSealed()) {
+                sb.append("sealed ");
+                return;
+            } else {
+                // Check for sealed ancestor, which implies this class
+                // is non-sealed.
+                if (hasSealedAncestor(this)) {
+                    sb.append("non-sealed ");
+                }
+            }
+        }
+    }
+
+    private boolean hasSealedAncestor(Class<?> clazz) {
+        // From JLS 8.1.1.2:
+        // "It is a compile-time error if a class has a sealed direct
+        // superclass or a sealed direct superinterface, and is not
+        // declared final, sealed, or non-sealed either explicitly or
+        // implicitly.
+        // Thus, an effect of the sealed keyword is to force all
+        // direct subclasses to explicitly declare whether they are
+        // final, sealed, or non-sealed. This avoids accidentally
+        // exposing a sealed class hierarchy to unwanted subclassing."
+
+        // Therefore, will just check direct superclass and
+        // superinterfaces.
+        var superclass = clazz.getSuperclass();
+        if (superclass != null && superclass.isSealed()) {
+            return true;
+        }
+        for (var superinterface : clazz.getInterfaces()) {
+            if (superinterface.isSealed()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static String typeVarBounds(TypeVariable<?> typeVar) {
@@ -1060,8 +1112,8 @@ public final class Class<T> implements java.io.Serializable,
     // will throw NoSuchFieldException
     private final ClassLoader classLoader;
 
-    // Set by VM
-    private transient Object classData;
+    private transient Object classData; // Set by VM
+    private transient Object[] signers; // Read by VM, mutable
 
     // package-private
     Object getClassData() {
@@ -1460,14 +1512,19 @@ public final class Class<T> implements java.io.Serializable,
      *          a primitive type or void.
      * @since   1.1
      */
-    public native Object[] getSigners();
-
+    public Object[] getSigners() {
+        var signers = this.signers;
+        return signers == null ? null : signers.clone();
+    }
 
     /**
      * Set the signers of this class.
      */
-    native void setSigners(Object[] signers);
-
+    void setSigners(Object[] signers) {
+        if (!isPrimitive() && !isArray()) {
+            this.signers = signers;
+        }
+    }
 
     /**
      * If this {@code Class} object represents a local or anonymous
@@ -3165,10 +3222,6 @@ public final class Class<T> implements java.io.Serializable,
         return true;
     }
 
-
-    /** protection domain returned when the internal domain is null */
-    private static java.security.ProtectionDomain allPermDomain;
-
     /**
      * Returns the {@code ProtectionDomain} of this class.  If there is a
      * security manager installed, this method first calls the security
@@ -3189,7 +3242,7 @@ public final class Class<T> implements java.io.Serializable,
      * @see java.lang.RuntimePermission
      * @since 1.2
      */
-    public java.security.ProtectionDomain getProtectionDomain() {
+    public ProtectionDomain getProtectionDomain() {
         @SuppressWarnings("removal")
         SecurityManager sm = System.getSecurityManager();
         if (sm != null) {
@@ -3198,26 +3251,30 @@ public final class Class<T> implements java.io.Serializable,
         return protectionDomain();
     }
 
-    // package-private
-    java.security.ProtectionDomain protectionDomain() {
-        java.security.ProtectionDomain pd = getProtectionDomain0();
-        if (pd == null) {
-            if (allPermDomain == null) {
-                java.security.Permissions perms =
-                    new java.security.Permissions();
-                perms.add(SecurityConstants.ALL_PERMISSION);
-                allPermDomain =
-                    new java.security.ProtectionDomain(null, perms);
-            }
-            pd = allPermDomain;
+    /** Holder for the protection domain returned when the internal domain is null */
+    private static class Holder {
+        private static final ProtectionDomain allPermDomain;
+        static {
+            Permissions perms = new Permissions();
+            perms.add(SecurityConstants.ALL_PERMISSION);
+            allPermDomain = new ProtectionDomain(null, perms);
         }
-        return pd;
+    }
+
+    // package-private
+    ProtectionDomain protectionDomain() {
+        ProtectionDomain pd = getProtectionDomain0();
+        if (pd == null) {
+            return Holder.allPermDomain;
+        } else {
+            return pd;
+        }
     }
 
     /**
      * Returns the ProtectionDomain of this class.
      */
-    private native java.security.ProtectionDomain getProtectionDomain0();
+    private native ProtectionDomain getProtectionDomain0();
 
     /*
      * Return the Virtual Machine's Class object for the named
@@ -4660,7 +4717,7 @@ public final class Class<T> implements java.io.Serializable,
     public Optional<ClassDesc> describeConstable() {
         Class<?> c = isArray() ? elementType() : this;
         return c.isHidden() ? Optional.empty()
-                            : Optional.of(ClassDesc.ofDescriptor(descriptorString()));
+                            : Optional.of(ConstantUtils.classDesc(this));
    }
 
     /**
@@ -4670,6 +4727,7 @@ public final class Class<T> implements java.io.Serializable,
      *
      * @since 15
      * @see MethodHandles.Lookup#defineHiddenClass
+     * @see Class##hiddenClasses Hidden Classes
      */
     @IntrinsicCandidate
     public native boolean isHidden();

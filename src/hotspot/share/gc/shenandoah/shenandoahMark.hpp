@@ -29,8 +29,19 @@
 #include "gc/shared/ageTable.hpp"
 #include "gc/shared/stringdedup/stringDedup.hpp"
 #include "gc/shared/taskTerminator.hpp"
-#include "gc/shenandoah/shenandoahOopClosures.hpp"
+#include "gc/shenandoah/shenandoahGenerationType.hpp"
+#include "gc/shenandoah/shenandoahHeap.hpp"
+#include "gc/shenandoah/shenandoahGeneration.hpp"
 #include "gc/shenandoah/shenandoahTaskqueue.hpp"
+
+enum StringDedupMode {
+  NO_DEDUP,      // Do not do anything for String deduplication
+  ENQUEUE_DEDUP, // Enqueue candidate Strings for deduplication, if meet age threshold
+  ALWAYS_DEDUP   // Enqueue Strings for deduplication
+};
+
+class ShenandoahMarkingContext;
+class ShenandoahReferenceProcessor;
 
 // Base class for mark
 // Mark class does not maintain states. Instead, mark states are
@@ -87,6 +98,9 @@ private:
   template <ShenandoahGenerationType GENERATION>
   static bool in_generation(ShenandoahHeap* const heap, oop obj);
 
+  template <class T>
+  static void mark_non_generational_ref(T *p, ShenandoahObjToScanQueue* q, ShenandoahMarkingContext* const mark_context, bool weak);
+
   static void mark_ref(ShenandoahObjToScanQueue* q,
                        ShenandoahMarkingContext* const mark_context,
                        bool weak, oop obj);
@@ -95,11 +109,11 @@ private:
   inline void dedup_string(oop obj, StringDedup::Requests* const req);
 protected:
   template<bool CANCELLABLE, StringDedupMode STRING_DEDUP>
-  void mark_loop(ShenandoahGenerationType generation, uint worker_id, TaskTerminator* terminator, ShenandoahReferenceProcessor *rp,
-                 StringDedup::Requests* const req);
+  void mark_loop(uint worker_id, TaskTerminator* terminator, ShenandoahReferenceProcessor *rp,
+                 ShenandoahGenerationType generation, StringDedup::Requests* const req);
 
-  void mark_loop(ShenandoahGenerationType generation, uint worker_id, TaskTerminator* terminator, ShenandoahReferenceProcessor *rp,
-                 bool cancellable, StringDedupMode dedup_mode, StringDedup::Requests* const req);
+  void mark_loop(uint worker_id, TaskTerminator* terminator, ShenandoahReferenceProcessor *rp,
+                 ShenandoahGenerationType generation, bool cancellable, StringDedupMode dedup_mode, StringDedup::Requests* const req);
 };
 
 #endif // SHARE_GC_SHENANDOAH_SHENANDOAHMARK_HPP

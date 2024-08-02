@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -149,7 +149,7 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     final int methodVtableIndexOffset = getFieldOffset("Method::_vtable_index", Integer.class, "int");
 
     final int methodDataOffset = getFieldOffset("Method::_method_data", Integer.class, "MethodData*");
-    final int methodCodeOffset = getFieldOffset("Method::_code", Integer.class, "CompiledMethod*");
+    final int methodCodeOffset = getFieldOffset("Method::_code", Integer.class, "nmethod*");
 
     final int methodFlagsForceInline = getConstant("MethodFlags::_misc_force_inline", Integer.class);
     final int methodFlagsDontInline = getConstant("MethodFlags::_misc_dont_inline", Integer.class);
@@ -342,6 +342,7 @@ class HotSpotVMConfig extends HotSpotVMConfigAccess {
     final int vmIntrinsicLinkToStatic = getConstant("vmIntrinsics::_linkToStatic", Integer.class);
     final int vmIntrinsicLinkToSpecial = getConstant("vmIntrinsics::_linkToSpecial", Integer.class);
     final int vmIntrinsicLinkToInterface = getConstant("vmIntrinsics::_linkToInterface", Integer.class);
+    final int vmIntrinsicLinkToNative = getConstant("vmIntrinsics::_linkToNative", Integer.class);
 
     final int codeInstallResultOk = getConstant("JVMCI::ok", Integer.class);
     final int codeInstallResultDependenciesFailed = getConstant("JVMCI::dependencies_failed", Integer.class);

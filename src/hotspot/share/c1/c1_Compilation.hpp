@@ -34,6 +34,7 @@
 #include "memory/resourceArea.hpp"
 #include "runtime/deoptimization.hpp"
 
+class CompilationFailureInfo;
 class CompilationResourceObj;
 class XHandlers;
 class ExceptionInfo;
@@ -83,8 +84,10 @@ class Compilation: public StackObj {
   bool               _has_method_handle_invokes;  // True if this method has MethodHandle invokes.
   bool               _has_reserved_stack_access;
   bool               _has_monitors; // Fastpath monitors detection for Continuations
+  bool               _has_scoped_access; // For shared scope closure
   bool               _install_code;
   const char*        _bailout_msg;
+  CompilationFailureInfo* _first_failure_details; // Details for the first failure happening during compilation
   bool               _oom;
   ExceptionInfoList* _exception_info_list;
   ExceptionHandlerTable _exception_handler_table;
@@ -141,6 +144,7 @@ class Compilation: public StackObj {
   bool has_fpu_code() const                      { return _has_fpu_code; }
   bool has_unsafe_access() const                 { return _has_unsafe_access; }
   bool has_monitors() const                      { return _has_monitors; }
+  bool has_scoped_access() const                 { return _has_scoped_access; }
   bool has_irreducible_loops() const             { return _has_irreducible_loops; }
   int max_vector_size() const                    { return 0; }
   ciMethod* method() const                       { return _method; }
@@ -173,6 +177,7 @@ class Compilation: public StackObj {
   void set_would_profile(bool f)                 { _would_profile = f; }
   void set_has_access_indexed(bool f)            { _has_access_indexed = f; }
   void set_has_monitors(bool f)                  { _has_monitors = f; }
+  void set_has_scoped_access(bool f)             { _has_scoped_access = f; }
   // Add a set of exception handlers covering the given PC offset
   void add_exception_handlers_for_pco(int pco, XHandlers* exception_handlers);
   // Statistics gathering
@@ -212,6 +217,7 @@ class Compilation: public StackObj {
   void bailout(const char* msg);
   bool bailed_out() const                        { return _bailout_msg != nullptr; }
   const char* bailout_msg() const                { return _bailout_msg; }
+  const CompilationFailureInfo* first_failure_details() const { return _first_failure_details; }
 
   static uint desired_max_code_buffer_size() {
     return (uint)NMethodSizeLimit;  // default 64K

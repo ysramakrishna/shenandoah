@@ -25,17 +25,14 @@
 #define SHARE_GC_SHENANDOAH_SHENANDOAHREGULATORTHREAD_HPP
 
 #include "gc/shared/concurrentGCThread.hpp"
-#include "gc/shared/gcCause.hpp"
-#include "gc/shenandoah/shenandoahSharedVariables.hpp"
-#include "runtime/mutex.hpp"
 
 class ShenandoahHeuristics;
-class ShenandoahControlThread;
+class ShenandoahGenerationalControlThread;
 
 /*
  * The purpose of this class (and thread) is to allow us to continue
  * to evaluate heuristics during a garbage collection. This is necessary
- * to allow young generation collections to interrupt and old generation
+ * to allow young generation collections to interrupt an old generation
  * collection which is in-progress. This puts heuristic triggers on the
  * same footing as other gc requests (alloc failure, System.gc, etc.).
  * However, this regulator does not block after submitting a gc request.
@@ -48,45 +45,40 @@ class ShenandoahRegulatorThread: public ConcurrentGCThread {
   friend class VMStructs;
 
  public:
-  explicit ShenandoahRegulatorThread(ShenandoahControlThread* control_thread);
-
-  const char* name() const { return "ShenandoahRegulatorThread";}
-
-  // This is called from allocation path, and thus should be fast.
-  void notify_heap_changed() {
-    // Notify that something had changed.
-    if (_heap_changed.is_unset()) {
-      _heap_changed.set();
-    }
-  }
+  explicit ShenandoahRegulatorThread(ShenandoahGenerationalControlThread* control_thread);
 
  protected:
-  void run_service();
-  void stop_service();
+  void run_service() override;
+  void stop_service() override;
 
  private:
-  void regulate_interleaved_cycles();
-  void regulate_concurrent_cycles();
-  void regulate_heap();
+  // When mode is generational
+  void regulate_young_and_old_cycles();
+  // When mode is generational, but ShenandoahAllowOldMarkingPreemption is false
+  void regulate_young_and_global_cycles();
 
+  // These return true if a cycle was started.
   bool start_old_cycle();
   bool start_young_cycle();
   bool start_global_cycle();
 
-  bool should_unload_classes();
+  // The generational mode can only unload classes in a global cycle. The regulator
+  // thread itself will trigger a global cycle if metaspace is out of memory.
+  bool should_start_metaspace_gc();
 
-  ShenandoahSharedFlag _heap_changed;
-  ShenandoahControlThread* _control_thread;
+  // Regulator will sleep longer when the allocation rate is lower.
+  void regulator_sleep();
+
+  // Provides instrumentation to track how long it takes to acknowledge a request.
+  bool request_concurrent_gc(ShenandoahGenerationType generation);
+
+  ShenandoahGenerationalControlThread* _control_thread;
   ShenandoahHeuristics* _young_heuristics;
   ShenandoahHeuristics* _old_heuristics;
   ShenandoahHeuristics* _global_heuristics;
 
-  int _sleep;
+  uint _sleep;
   double _last_sleep_adjust_time;
-
-  void regulator_sleep();
-
-  bool request_concurrent_gc(ShenandoahGenerationType generation);
 };
 
 

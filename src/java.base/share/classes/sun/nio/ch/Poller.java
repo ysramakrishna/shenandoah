@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -190,7 +190,12 @@ abstract class Poller {
     private void register(int fdVal) throws IOException {
         Thread previous = map.put(fdVal, Thread.currentThread());
         assert previous == null;
-        implRegister(fdVal);
+        try {
+            implRegister(fdVal);
+        } catch (Throwable t) {
+            map.remove(fdVal);
+            throw t;
+        }
     }
 
     /**
@@ -368,7 +373,7 @@ abstract class Poller {
 
             // check power of 2
             if (count != Integer.highestOneBit(count)) {
-                String msg = propName + " is set to a vale that is not a power of 2";
+                String msg = propName + " is set to a value that is not a power of 2";
                 throw new IllegalArgumentException(msg);
             }
             return count;

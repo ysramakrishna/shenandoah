@@ -31,6 +31,7 @@
 #include "gc/shenandoah/shenandoahDegeneratedGC.hpp"
 #include "gc/shenandoah/shenandoahFullGC.hpp"
 #include "gc/shenandoah/shenandoahGeneration.hpp"
+#include "gc/shenandoah/shenandoahGenerationalHeap.hpp"
 #include "gc/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc/shenandoah/shenandoahMetrics.hpp"
 #include "gc/shenandoah/shenandoahMonitoringSupport.hpp"
@@ -57,7 +58,7 @@ bool ShenandoahDegenGC::collect(GCCause::Cause cause) {
   vmop_degenerated();
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->mode()->is_generational()) {
-    bool is_bootstrap_gc = heap->old_generation()->state() == ShenandoahOldGeneration::BOOTSTRAPPING;
+    bool is_bootstrap_gc = heap->old_generation()->is_bootstrapping();
     heap->mmu_tracker()->record_degenerated(GCId::current(), is_bootstrap_gc);
     const char* msg = is_bootstrap_gc? "At end of Degenerated Bootstrap Old GC": "At end of Degenerated Young GC";
     heap->log_heap_status(msg);
@@ -104,10 +105,9 @@ void ShenandoahDegenGC::op_degenerated() {
     if (_generation->is_global()) {
       // If we are in a global cycle, the old generation should not be marking. It is, however,
       // allowed to be holding regions for evacuation or coalescing.
-      ShenandoahOldGeneration::State state = old_generation->state();
-      assert(state == ShenandoahOldGeneration::WAITING_FOR_BOOTSTRAP
-             || state == ShenandoahOldGeneration::EVACUATING
-             || state == ShenandoahOldGeneration::FILLING,
+      assert(old_generation->is_idle()
+             || old_generation->is_doing_mixed_evacuations()
+             || old_generation->is_preparing_for_mark(),
              "Old generation cannot be in state: %s", old_generation->state_name());
     }
   }
@@ -162,17 +162,17 @@ void ShenandoahDegenGC::op_degenerated() {
           // transferred to the old generation mark queues and the young pointers are NOT part
           // of this snapshot, so they must be dropped here. It is safe to drop them here because
           // we will rescan the roots on this safepoint.
-          heap->transfer_old_pointers_from_satb();
+          heap->old_generation()->transfer_pointers_from_satb();
         }
-      }
 
-      if (_degen_point == ShenandoahDegenPoint::_degenerated_roots) {
-        // We only need this if the concurrent cycle has already swapped the card tables.
-        // Marking will use the 'read' table, but interesting pointers may have been
-        // recorded in the 'write' table in the time between the cancelled concurrent cycle
-        // and this degenerated cycle. These pointers need to be included the 'read' table
-        // used to scan the remembered set during the STW mark which follows here.
-        _generation->merge_write_table();
+        if (_degen_point == ShenandoahDegenPoint::_degenerated_roots) {
+          // We only need this if the concurrent cycle has already swapped the card tables.
+          // Marking will use the 'read' table, but interesting pointers may have been
+          // recorded in the 'write' table in the time between the cancelled concurrent cycle
+          // and this degenerated cycle. These pointers need to be included the 'read' table
+          // used to scan the remembered set during the STW mark which follows here.
+          _generation->merge_write_table();
+        }
       }
 
       op_reset();
@@ -280,60 +280,15 @@ void ShenandoahDegenGC::op_degenerated() {
       // In above case, update roots should disarm them
       ShenandoahCodeRoots::disarm_nmethods();
 
-      if (heap->mode()->is_generational() && heap->is_concurrent_old_mark_in_progress()) {
-        // This is still necessary for degenerated cycles because the degeneration point may occur
-        // after final mark of the young generation. See ShenandoahConcurrentGC::op_final_updaterefs for
-        // a more detailed explanation.
-        heap->transfer_old_pointers_from_satb();
-      }
-
       op_cleanup_complete();
-      // We defer generation resizing actions until after cset regions have been recycled.
+
       if (heap->mode()->is_generational()) {
-        size_t old_region_surplus = heap->get_old_region_surplus();
-        size_t old_region_deficit = heap->get_old_region_deficit();
-        bool success;
-        size_t region_xfer;
-        const char* region_destination;
-        if (old_region_surplus) {
-          region_xfer = old_region_surplus;
-          region_destination = "young";
-          success = heap->generation_sizer()->transfer_to_young(old_region_surplus);
-        } else if (old_region_deficit) {
-          region_xfer = old_region_surplus;
-          region_destination = "old";
-          success = heap->generation_sizer()->transfer_to_old(old_region_deficit);
-          if (!success) {
-            heap->old_heuristics()->trigger_cannot_expand();
-          }
-        } else {
-          region_destination = "none";
-          region_xfer = 0;
-          success = true;
-        }
-
-        size_t young_available = heap->young_generation()->available();
-        size_t old_available = heap->old_generation()->available();
-        log_info(gc, ergo)("After cleanup, %s " SIZE_FORMAT " regions to %s to prepare for next gc, old available: "
-                           SIZE_FORMAT "%s, young_available: " SIZE_FORMAT "%s",
-                           success? "successfully transferred": "failed to transfer", region_xfer, region_destination,
-                           byte_size_in_proper_unit(old_available), proper_unit_for_byte_size(old_available),
-                           byte_size_in_proper_unit(young_available), proper_unit_for_byte_size(young_available));
-
-        heap->set_old_region_surplus(0);
-        heap->set_old_region_deficit(0);
+        ShenandoahGenerationalHeap::heap()->complete_degenerated_cycle();
       }
+
       break;
     default:
       ShouldNotReachHere();
-  }
-
-  if (heap->mode()->is_generational()) {
-    // In case degeneration interrupted concurrent evacuation or update references, we need to clean up transient state.
-    // Otherwise, these actions have no effect.
-    heap->set_young_evac_reserve(0);
-    heap->set_old_evac_reserve(0);
-    heap->set_promoted_reserve(0);
   }
 
   if (ShenandoahVerify) {
@@ -349,7 +304,6 @@ void ShenandoahDegenGC::op_degenerated() {
   // Check for futility and fail. There is no reason to do several back-to-back Degenerated cycles,
   // because that probably means the heap is overloaded and/or fragmented.
   if (!metrics.is_good_progress()) {
-    heap->notify_gc_no_progress();
     heap->cancel_gc(GCCause::_shenandoah_upgrade_to_full_gc);
     op_degenerated_futile();
   } else {
@@ -397,9 +351,7 @@ void ShenandoahDegenGC::op_prepare_evacuation() {
     heap->tlabs_retire(false);
   }
 
-  size_t humongous_regions_promoted = heap->get_promotable_humongous_regions();
-  size_t regular_regions_promoted_in_place = heap->get_regular_regions_promoted_in_place();
-  if (!heap->collection_set()->is_empty() || (humongous_regions_promoted + regular_regions_promoted_in_place > 0)) {
+  if (!heap->collection_set()->is_empty() || has_in_place_promotions(heap)) {
     // Even if the collection set is empty, we need to do evacuation if there are regions to be promoted in place.
     // Degenerated evacuation takes responsibility for registering objects and setting the remembered set cards to dirty.
 
@@ -423,6 +375,10 @@ void ShenandoahDegenGC::op_prepare_evacuation() {
       Universe::verify();
     }
   }
+}
+
+bool ShenandoahDegenGC::has_in_place_promotions(const ShenandoahHeap* heap) const {
+  return heap->mode()->is_generational() && heap->old_generation()->has_in_place_promotions();
 }
 
 void ShenandoahDegenGC::op_cleanup_early() {
@@ -503,7 +459,7 @@ const char* ShenandoahDegenGC::degen_event_message(ShenandoahDegenPoint point) c
 }
 
 void ShenandoahDegenGC::upgrade_to_full() {
-  log_info(gc)("Degenerate GC upgrading to Full GC");
+  log_info(gc)("Degenerated GC upgrading to Full GC");
   ShenandoahHeap::heap()->shenandoah_policy()->record_degenerated_upgrade_to_full();
   ShenandoahFullGC full_gc;
   full_gc.op_full(GCCause::_shenandoah_upgrade_to_full_gc);

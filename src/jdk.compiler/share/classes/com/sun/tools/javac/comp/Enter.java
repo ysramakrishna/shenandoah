@@ -206,10 +206,10 @@ public class Enter extends JCTree.Visitor {
             env.dup(tree, env.info.dup(WriteableScope.create(tree.sym)));
         localEnv.enclClass = tree;
         localEnv.outer = env;
-        localEnv.info.isSelfCall = false;
         localEnv.info.lint = null; // leave this to be filled in by Attr,
                                    // when annotations have been processed
         localEnv.info.isAnonymousDiamond = TreeInfo.isDiamond(env.tree);
+        localEnv.info.ctorPrologue = false;
         return localEnv;
     }
 
@@ -259,7 +259,6 @@ public class Enter extends JCTree.Visitor {
             env.dup(tree, env.info.dup(WriteableScope.create(tree.sym)));
         localEnv.enclClass = predefClassDef;
         localEnv.outer = env;
-        localEnv.info.isSelfCall = false;
         localEnv.info.lint = null; // leave this to be filled in by Attr,
                                    // when annotations have been processed
         return localEnv;
@@ -444,7 +443,7 @@ public class Enter extends JCTree.Visitor {
                 log.error(tree.pos(),
                           Errors.ClassPublicShouldBeInFile(topElement, tree.name));
             }
-            if ((tree.mods.flags & UNNAMED_CLASS) != 0) {
+            if ((tree.mods.flags & IMPLICIT_CLASS) != 0) {
                 syms.removeClass(env.toplevel.modle, tree.name);
             }
         } else {

@@ -26,17 +26,19 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHGENERATION_HPP
 
 #include "memory/allocation.hpp"
-#include "gc/shenandoah/heuristics/shenandoahOldHeuristics.hpp"
 #include "gc/shenandoah/heuristics/shenandoahSpaceInfo.hpp"
 #include "gc/shenandoah/shenandoahGenerationType.hpp"
 #include "gc/shenandoah/shenandoahLock.hpp"
 #include "gc/shenandoah/shenandoahMarkingContext.hpp"
 
+class ShenandoahCollectionSet;
+class ShenandoahHeap;
 class ShenandoahHeapRegion;
 class ShenandoahHeapRegionClosure;
-class ShenandoahReferenceProcessor;
-class ShenandoahHeap;
+class ShenandoahHeuristics;
 class ShenandoahMode;
+class ShenandoahReferenceProcessor;
+
 
 class ShenandoahGeneration : public CHeapObj<mtGC>, public ShenandoahSpaceInfo {
   friend class VMStructs;
@@ -59,6 +61,9 @@ private:
   // heap lock.
   size_t _humongous_waste;
 
+  // Bytes reserved within this generation to hold evacuated objects from the collection set
+  size_t _evacuation_reserve;
+
 protected:
   // Usage
 
@@ -71,24 +76,28 @@ protected:
 
 private:
   // Compute evacuation budgets prior to choosing collection set.
-  void compute_evacuation_budgets(ShenandoahHeap* heap,
-                                  bool* preselected_regions,
-                                  ShenandoahCollectionSet* collection_set,
-                                  size_t& consumed_by_advance_promotion);
+  void compute_evacuation_budgets(ShenandoahHeap* heap);
 
   // Adjust evacuation budgets after choosing collection set.
   void adjust_evacuation_budgets(ShenandoahHeap* heap,
-                                 ShenandoahCollectionSet* collection_set,
-                                 size_t consumed_by_advance_promotion);
+                                 ShenandoahCollectionSet* collection_set);
 
-  // Preselect for inclusion into the collection set regions whose age is
-  // at or above tenure age and which contain more than ShenandoahOldGarbageThreshold
-  // amounts of garbage.
+  // Preselect for possible inclusion into the collection set exactly the most
+  // garbage-dense regions, including those that satisfy criteria 1 & 2 below,
+  // and whose live bytes will fit within old_available budget:
+  // Criterion 1. region age >= tenuring threshold
+  // Criterion 2. region garbage percentage > ShenandoahOldGarbageThreshold
   //
-  // Returns bytes of old-gen memory consumed by selected aged regions
-  size_t select_aged_regions(size_t old_available,
-                             size_t num_regions, bool
-                             candidate_regions_for_promotion_by_copy[]);
+  // Identifies regions eligible for promotion in place,
+  // being those of at least tenuring_threshold age that have lower garbage
+  // density.
+  //
+  // Updates promotion_potential and pad_for_promote_in_place fields
+  // of the heap. Returns bytes of live object memory in the preselected
+  // regions, which are marked in the preselected_regions() indicator
+  // array of the heap's collection set, which should be initialized
+  // to false.
+  size_t select_aged_regions(size_t old_available);
 
   size_t available(size_t capacity) const;
 
@@ -101,11 +110,16 @@ private:
 
   bool is_young() const  { return _type == YOUNG; }
   bool is_old() const    { return _type == OLD; }
-  bool is_global() const { return _type == GLOBAL_GEN || _type == GLOBAL_NON_GEN; }
+  bool is_global() const { return _type == GLOBAL || _type == NON_GEN; }
+
+  // see description in field declaration
+  void set_evacuation_reserve(size_t new_val);
+  size_t get_evacuation_reserve() const;
+  void augment_evacuation_reserve(size_t increment);
 
   inline ShenandoahGenerationType type() const { return _type; }
 
-  inline ShenandoahHeuristics* heuristics() const { return _heuristics; }
+  virtual ShenandoahHeuristics* heuristics() const { return _heuristics; }
 
   ShenandoahReferenceProcessor* ref_processor() { return _ref_processor; }
 
@@ -119,6 +133,9 @@ private:
   size_t used() const override { return _used; }
   size_t available() const override;
   size_t available_with_reserve() const;
+  size_t used_including_humongous_waste() const {
+    return used() + get_humongous_waste();
+  }
 
   // Returns the memory available based on the _soft_ max heap capacity (soft_max_heap - used).
   // The soft max heap size may be adjusted lower than the max heap size to cause the trigger
@@ -130,10 +147,13 @@ private:
   void reset_bytes_allocated_since_gc_start();
   void increase_allocated(size_t bytes);
 
-  // These methods change the capacity of the region by adding or subtracting the given number of bytes from the current
-  // capacity.
-  void increase_capacity(size_t increment);
-  void decrease_capacity(size_t decrement);
+  // These methods change the capacity of the generation by adding or subtracting the given number of bytes from the current
+  // capacity, returning the capacity of the generation following the change.
+  size_t increase_capacity(size_t increment);
+  size_t decrease_capacity(size_t decrement);
+
+  // Set the capacity of the generation, returning the value set
+  size_t set_capacity(size_t byte_size);
 
   void log_status(const char* msg) const;
 
@@ -163,6 +183,9 @@ private:
 
   // Apply closure to all regions affiliated with this generation.
   virtual void parallel_heap_region_iterate(ShenandoahHeapRegionClosure* cl) = 0;
+
+  // Apply closure to all regions affiliated with this generation (include free regions);
+  virtual void parallel_region_iterate_free(ShenandoahHeapRegionClosure* cl);
 
   // Apply closure to all regions affiliated with this generation (single threaded).
   virtual void heap_region_iterate(ShenandoahHeapRegionClosure* cl) = 0;

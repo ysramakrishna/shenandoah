@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,7 +30,6 @@
 #include "classfile/vmClasses.hpp"
 #include "classfile/vmSymbols.hpp"
 #include "code/codeCache.hpp"
-#include "code/icBuffer.hpp"
 #include "code/vtableStubs.hpp"
 #include "gc/shared/gcVMOperations.hpp"
 #include "interpreter/interpreter.hpp"
@@ -76,7 +75,12 @@
 #include "utilities/defaultStream.hpp"
 #include "utilities/events.hpp"
 #include "utilities/fastrand.hpp"
+#include "utilities/macros.hpp"
 #include "utilities/powerOfTwo.hpp"
+
+#ifdef LINUX
+#include "osContainer_linux.hpp"
+#endif
 
 #ifndef _WINDOWS
 # include <poll.h>
@@ -108,6 +112,16 @@ int os::snprintf_checked(char* buf, size_t len, const char* fmt, ...) {
   va_end(args);
   assert(result >= 0, "os::snprintf error");
   assert(static_cast<size_t>(result) < len, "os::snprintf truncated");
+  return result;
+}
+
+int os::vsnprintf(char* buf, size_t len, const char* fmt, va_list args) {
+  ALLOW_C_FUNCTION(::vsnprintf, int result = ::vsnprintf(buf, len, fmt, args);)
+  // If an encoding error occurred (result < 0) then it's not clear
+  // whether the buffer is NUL terminated, so ensure it is.
+  if ((result < 0) && (len > 0)) {
+    buf[len - 1] = '\0';
+  }
   return result;
 }
 
@@ -199,9 +213,9 @@ char* os::iso8601_time(jlong milliseconds_since_19700101, char* buffer, size_t b
     abs_local_to_UTC = -(abs_local_to_UTC);
   }
   // Convert time zone offset seconds to hours and minutes.
-  const time_t zone_hours = (abs_local_to_UTC / seconds_per_hour);
-  const time_t zone_min =
-    ((abs_local_to_UTC % seconds_per_hour) / seconds_per_minute);
+  const int zone_hours = static_cast<int>(abs_local_to_UTC / seconds_per_hour);
+  const int zone_min =
+    static_cast<int>((abs_local_to_UTC % seconds_per_hour) / seconds_per_minute);
 
   // Print an ISO 8601 date and time stamp into the buffer
   const int year = 1900 + time_struct.tm_year;
@@ -262,13 +276,6 @@ bool os::dll_build_name(char* buffer, size_t size, const char* fname) {
   return (n != -1);
 }
 
-#if !defined(LINUX) && !defined(_WINDOWS)
-bool os::committed_in_range(address start, size_t size, address& committed_start, size_t& committed_size) {
-  committed_start = start;
-  committed_size = size;
-  return true;
-}
-#endif
 
 // Helper for dll_locate_lib.
 // Pass buffer and printbuffer as we already printed the path to buffer
@@ -931,56 +938,73 @@ bool os::print_function_and_library_name(outputStream* st,
   return have_function_name || have_library_name;
 }
 
-ATTRIBUTE_NO_ASAN static bool read_safely_from(intptr_t* p, intptr_t* result) {
-  const intptr_t errval = 0x1717;
-  intptr_t i = SafeFetchN(p, errval);
+ATTRIBUTE_NO_ASAN static bool read_safely_from(const uintptr_t* p, uintptr_t* result) {
+  DEBUG_ONLY(*result = 0xAAAA;)
+  const uintptr_t errval = 0x1717;
+  uintptr_t i = (uintptr_t)SafeFetchN((intptr_t*)p, errval);
   if (i == errval) {
-    i = SafeFetchN(p, ~errval);
+    i = (uintptr_t)SafeFetchN((intptr_t*)p, ~errval);
     if (i == ~errval) {
       return false;
     }
   }
-  (*result) = i;
+  (*result) = (uintptr_t)i;
   return true;
 }
 
-static void print_hex_location(outputStream* st, address p, int unitsize) {
+// Helper for os::print_hex_dump
+static void print_ascii_form(stringStream& ascii_form, uint64_t value, int unitsize) {
+  union {
+    uint64_t v;
+    uint8_t c[sizeof(v)];
+  } u = { value };
+  for (int i = 0; i < unitsize; i++) {
+    const int idx = LITTLE_ENDIAN_ONLY(i) BIG_ENDIAN_ONLY(sizeof(u.v) - unitsize + i);
+    const uint8_t c = u.c[idx];
+    ascii_form.put(isprint(c) && isascii(c) ? c : '.');
+  }
+}
+
+// Helper for os::print_hex_dump
+static void print_hex_location(outputStream* st, const_address p, int unitsize, stringStream& ascii_form) {
   assert(is_aligned(p, unitsize), "Unaligned");
-  address pa = align_down(p, sizeof(intptr_t));
+  const uintptr_t* pa = (const uintptr_t*) align_down(p, sizeof(intptr_t));
 #ifndef _LP64
   // Special handling for printing qwords on 32-bit platforms
   if (unitsize == 8) {
-    intptr_t i1, i2;
-    if (read_safely_from((intptr_t*)pa, &i1) &&
-        read_safely_from((intptr_t*)pa + 1, &i2)) {
+    uintptr_t i1 = 0, i2 = 0;
+    if (read_safely_from(pa, &i1) &&
+        read_safely_from(pa + 1, &i2)) {
       const uint64_t value =
         LITTLE_ENDIAN_ONLY((((uint64_t)i2) << 32) | i1)
         BIG_ENDIAN_ONLY((((uint64_t)i1) << 32) | i2);
       st->print("%016" FORMAT64_MODIFIER "x", value);
+      print_ascii_form(ascii_form, value, unitsize);
     } else {
       st->print_raw("????????????????");
     }
     return;
   }
 #endif // 32-bit, qwords
-  intptr_t i = 0;
-  if (read_safely_from((intptr_t*)pa, &i)) {
+  uintptr_t i = 0;
+  if (read_safely_from(pa, &i)) {
     // bytes:   CA FE BA BE DE AD C0 DE
     // bytoff:   0  1  2  3  4  5  6  7
     // LE bits:  0  8 16 24 32 40 48 56
     // BE bits: 56 48 40 32 24 16  8  0
-    const int offset = (int)(p - (address)pa);
+    const int offset = (int)(p - (const_address)pa);
     const int bitoffset =
       LITTLE_ENDIAN_ONLY(offset * BitsPerByte)
       BIG_ENDIAN_ONLY((int)((sizeof(intptr_t) - unitsize - offset) * BitsPerByte));
     const int bitfieldsize = unitsize * BitsPerByte;
-    intptr_t value = bitfield(i, bitoffset, bitfieldsize);
+    uintptr_t value = bitfield(i, bitoffset, bitfieldsize);
     switch (unitsize) {
       case 1: st->print("%02x", (u1)value); break;
       case 2: st->print("%04x", (u2)value); break;
       case 4: st->print("%08x", (u4)value); break;
       case 8: st->print("%016" FORMAT64_MODIFIER "x", (u8)value); break;
     }
+    print_ascii_form(ascii_form, value, unitsize);
   } else {
     switch (unitsize) {
       case 1: st->print_raw("??"); break;
@@ -991,36 +1015,56 @@ static void print_hex_location(outputStream* st, address p, int unitsize) {
   }
 }
 
-void os::print_hex_dump(outputStream* st, address start, address end, int unitsize,
-                        int bytes_per_line, address logical_start) {
+void os::print_hex_dump(outputStream* st, const_address start, const_address end, int unitsize,
+                        bool print_ascii, int bytes_per_line, const_address logical_start) {
+  constexpr int max_bytes_per_line = 64;
   assert(unitsize == 1 || unitsize == 2 || unitsize == 4 || unitsize == 8, "just checking");
+  assert(bytes_per_line > 0 && bytes_per_line <= max_bytes_per_line &&
+         is_power_of_2(bytes_per_line), "invalid bytes_per_line");
 
   start = align_down(start, unitsize);
   logical_start = align_down(logical_start, unitsize);
   bytes_per_line = align_up(bytes_per_line, 8);
 
   int cols = 0;
-  int cols_per_line = bytes_per_line / unitsize;
+  const int cols_per_line = bytes_per_line / unitsize;
 
-  address p = start;
-  address logical_p = logical_start;
+  const_address p = start;
+  const_address logical_p = logical_start;
+
+  stringStream ascii_form;
 
   // Print out the addresses as if we were starting from logical_start.
-  st->print(PTR_FORMAT ":   ", p2i(logical_p));
   while (p < end) {
-    print_hex_location(st, p, unitsize);
+    if (cols == 0) {
+      st->print(PTR_FORMAT ":   ", p2i(logical_p));
+    }
+    print_hex_location(st, p, unitsize, ascii_form);
     p += unitsize;
     logical_p += unitsize;
     cols++;
-    if (cols >= cols_per_line && p < end) {
-       cols = 0;
+    if (cols >= cols_per_line) {
+       if (print_ascii && !ascii_form.is_empty()) {
+         st->print("   %s", ascii_form.base());
+       }
+       ascii_form.reset();
        st->cr();
-       st->print(PTR_FORMAT ":   ", p2i(logical_p));
+       cols = 0;
     } else {
        st->print(" ");
     }
   }
-  st->cr();
+
+  if (cols > 0) { // did not print a full line
+    if (print_ascii) {
+      // indent last ascii part to match that of full lines
+      const int size_of_printed_unit = unitsize * 2;
+      const int space_left = (cols_per_line - cols) * (size_of_printed_unit + 1);
+      st->sp(space_left);
+      st->print("  %s", ascii_form.base());
+    }
+    st->cr();
+  }
 }
 
 void os::print_dhm(outputStream* st, const char* startStr, long sec) {
@@ -1038,7 +1082,7 @@ void os::print_tos(outputStream* st, address sp) {
 
 void os::print_instructions(outputStream* st, address pc, int unitsize) {
   st->print_cr("Instructions: (pc=" PTR_FORMAT ")", p2i(pc));
-  print_hex_dump(st, pc - 256, pc + 256, unitsize);
+  print_hex_dump(st, pc - 256, pc + 256, unitsize, /* print_ascii=*/false);
 }
 
 void os::print_environment_variables(outputStream* st, const char** env_list) {
@@ -1105,10 +1149,11 @@ void os::print_summary_info(outputStream* st, char* buf, size_t buflen) {
   st->cr();
 }
 
+static constexpr int secs_per_day  = 86400;
+static constexpr int secs_per_hour = 3600;
+static constexpr int secs_per_min  = 60;
+
 void os::print_date_and_time(outputStream *st, char* buf, size_t buflen) {
-  const int secs_per_day  = 86400;
-  const int secs_per_hour = 3600;
-  const int secs_per_min  = 60;
 
   time_t tloc;
   (void)time(&tloc);
@@ -1134,9 +1179,15 @@ void os::print_date_and_time(outputStream *st, char* buf, size_t buflen) {
   }
 
   double t = os::elapsedTime();
+  st->print(" elapsed time: ");
+  print_elapsed_time(st, t);
+  st->cr();
+}
+
+void os::print_elapsed_time(outputStream* st, double time) {
   // NOTE: a crash using printf("%f",...) on Linux was historically noted here.
-  int eltime = (int)t;  // elapsed time in seconds
-  int eltimeFraction = (int) ((t - eltime) * 1000000);
+  int eltime = (int)time;  // elapsed time in seconds
+  int eltimeFraction = (int) ((time - eltime) * 1000000);
 
   // print elapsed time in a human-readable format:
   int eldays = eltime / secs_per_day;
@@ -1146,7 +1197,7 @@ void os::print_date_and_time(outputStream *st, char* buf, size_t buflen) {
   int elmins = (eltime - day_secs - hour_secs) / secs_per_min;
   int minute_secs = elmins * secs_per_min;
   int elsecs = (eltime - day_secs - hour_secs - minute_secs);
-  st->print_cr(" elapsed time: %d.%06d seconds (%dd %dh %dm %ds)", eltime, eltimeFraction, eldays, elhours, elmins, elsecs);
+  st->print("%d.%06d seconds (%dd %dh %dm %ds)", eltime, eltimeFraction, eldays, elhours, elmins, elsecs);
 }
 
 
@@ -1192,6 +1243,8 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
   if (Universe::heap()->print_location(st, addr)) {
     return;
   }
+
+#if !INCLUDE_ASAN
 
   bool accessible = is_readable_pointer(addr);
 
@@ -1247,7 +1300,7 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
 #ifdef _LP64
   if (UseCompressedClassPointers && ((uintptr_t)addr &~ (uintptr_t)max_juint) == 0) {
     narrowKlass narrow_klass = (narrowKlass)(uintptr_t)addr;
-    Klass* k = CompressedKlassPointers::decode_raw(narrow_klass);
+    Klass* k = CompressedKlassPointers::decode_without_asserts(narrow_klass);
 
     if (Klass::is_valid(k)) {
       st->print_cr(UINT32_FORMAT " is a compressed pointer to class: " INTPTR_FORMAT, narrow_klass, p2i((HeapWord*)k));
@@ -1279,10 +1332,13 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
     return;
   }
 
+#endif // !INCLUDE_ASAN
+
   st->print_cr(INTPTR_FORMAT " is an unknown value", p2i(addr));
+
 }
 
-bool is_pointer_bad(intptr_t* ptr) {
+static bool is_pointer_bad(intptr_t* ptr) {
   return !is_aligned(ptr, sizeof(uintptr_t)) || !os::is_readable_pointer(ptr);
 }
 
@@ -1699,6 +1755,13 @@ const char* os::errno_name(int e) {
   return errno_to_string(e, true);
 }
 
+// create binary file, rewriting existing file if required
+int os::create_binary_file(const char* path, bool rewrite_existing) {
+  int oflags = O_WRONLY | O_CREAT WINDOWS_ONLY(| O_BINARY);
+  oflags |= rewrite_existing ? O_TRUNC : O_EXCL;
+  return ::open(path, oflags, S_IREAD | S_IWRITE);
+}
+
 #define trace_page_size_params(size) byte_size_in_exact_unit(size), exact_unit_for_byte_size(size)
 
 void os::trace_page_sizes(const char* str,
@@ -1805,20 +1868,22 @@ char* os::reserve_memory(size_t bytes, bool executable, MEMFLAGS flags) {
   char* result = pd_reserve_memory(bytes, executable);
   if (result != nullptr) {
     MemTracker::record_virtual_memory_reserve(result, bytes, CALLER_PC, flags);
+    log_debug(os, map)("Reserved " RANGEFMT, RANGEFMTARGS(result, bytes));
+  } else {
+    log_info(os, map)("Reserve failed (%zu bytes)", bytes);
   }
   return result;
 }
 
-char* os::attempt_reserve_memory_at(char* addr, size_t bytes, bool executable) {
-  char* result = pd_attempt_reserve_memory_at(addr, bytes, executable);
+char* os::attempt_reserve_memory_at(char* addr, size_t bytes, bool executable, MEMFLAGS flag) {
+  char* result = SimulateFullAddressSpace ? nullptr : pd_attempt_reserve_memory_at(addr, bytes, executable);
   if (result != nullptr) {
-    MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
-    log_debug(os)("Reserved memory at " INTPTR_FORMAT " for " SIZE_FORMAT " bytes.", p2i(addr), bytes);
+    MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC, flag);
+    log_debug(os, map)("Reserved " RANGEFMT, RANGEFMTARGS(result, bytes));
   } else {
-    log_debug(os)("Attempt to reserve memory at " INTPTR_FORMAT " for "
-                 SIZE_FORMAT " bytes failed, errno %d", p2i(addr), bytes, get_last_error());
+    log_info(os, map)("Attempt to reserve " RANGEFMT " failed",
+                      RANGEFMTARGS(addr, bytes));
   }
-
   return result;
 }
 
@@ -1874,10 +1939,10 @@ char* os::attempt_reserve_memory_between(char* min, char* max, size_t bytes, siz
   // we attempt to minimize fragmentation.
   constexpr unsigned total_shuffle_threshold = 1024;
 
-#define ARGSFMT " range [" PTR_FORMAT "-" PTR_FORMAT "), size " SIZE_FORMAT_X ", alignment " SIZE_FORMAT_X ", randomize: %d"
+#define ARGSFMT "range [" PTR_FORMAT "-" PTR_FORMAT "), size " SIZE_FORMAT_X ", alignment " SIZE_FORMAT_X ", randomize: %d"
 #define ARGSFMTARGS p2i(min), p2i(max), bytes, alignment, randomize
 
-  log_trace(os, map) ("reserve_between (" ARGSFMT ")", ARGSFMTARGS);
+  log_debug(os, map) ("reserve_between (" ARGSFMT ")", ARGSFMTARGS);
 
   assert(is_power_of_2(alignment), "alignment invalid (" ARGSFMT ")", ARGSFMTARGS);
   assert(alignment < SIZE_MAX / 2, "alignment too large (" ARGSFMT ")", ARGSFMTARGS);
@@ -1887,7 +1952,15 @@ char* os::attempt_reserve_memory_between(char* min, char* max, size_t bytes, siz
   char* const absolute_max = (char*)(NOT_LP64(G * 3) LP64_ONLY(G * 128 * 1024));
   char* const absolute_min = (char*) os::vm_min_address();
 
-  const size_t alignment_adjusted = MAX2(alignment, os::vm_allocation_granularity());
+  // AIX is the only platform that uses System V shm for reserving virtual memory.
+  // In this case, the required alignment of the allocated size (64K) and the alignment
+  // of possible start points of the memory region (256M) differ.
+  // This is not reflected by os_allocation_granularity().
+  // The logic here is dual to the one in pd_reserve_memory in os_aix.cpp
+  const size_t system_allocation_granularity =
+    AIX_ONLY((!os::Aix::supports_64K_mmap_pages() && os::vm_page_size() == 64*K) ? 256*M : ) os::vm_allocation_granularity();
+
+  const size_t alignment_adjusted = MAX2(alignment, system_allocation_granularity);
 
   // Calculate first and last possible attach points:
   char* const lo_att = align_up(MAX2(absolute_min, min), alignment_adjusted);
@@ -1895,7 +1968,11 @@ char* os::attempt_reserve_memory_between(char* min, char* max, size_t bytes, siz
     return nullptr; // overflow
   }
 
-  char* const hi_att = align_down(MIN2(max, absolute_max) - bytes, alignment_adjusted);
+  char* const hi_end = MIN2(max, absolute_max);
+  if ((uintptr_t)hi_end < bytes) {
+    return nullptr; // no need to go on
+  }
+  char* const hi_att = align_down(hi_end - bytes, alignment_adjusted);
   if (hi_att > max) {
     return nullptr; // overflow
   }
@@ -1987,7 +2064,7 @@ char* os::attempt_reserve_memory_between(char* min, char* max, size_t bytes, siz
     const unsigned candidate_offset = points[i];
     char* const candidate = lo_att + candidate_offset * alignment_adjusted;
     assert(candidate <= hi_att, "Invalid offset %u (" ARGSFMT ")", candidate_offset, ARGSFMTARGS);
-    result = os::pd_attempt_reserve_memory_at(candidate, bytes, false);
+    result = SimulateFullAddressSpace ? nullptr : os::pd_attempt_reserve_memory_at(candidate, bytes, false);
     if (!result) {
       log_trace(os, map)("Failed to attach at " PTR_FORMAT, p2i(candidate));
     }
@@ -2005,6 +2082,8 @@ char* os::attempt_reserve_memory_between(char* min, char* max, size_t bytes, siz
     log_trace(os, map)(ERRFMT, ERRFMTARGS);
     log_debug(os, map)("successfully attached at " PTR_FORMAT, p2i(result));
     MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
+  } else {
+    log_debug(os, map)("failed to attach anywhere in [" PTR_FORMAT "-" PTR_FORMAT ")", p2i(min), p2i(max));
   }
   return result;
 #undef ARGSFMT
@@ -2018,11 +2097,27 @@ static void assert_nonempty_range(const char* addr, size_t bytes) {
          p2i(addr), p2i(addr) + bytes);
 }
 
+julong os::used_memory() {
+#ifdef LINUX
+  if (OSContainer::is_containerized()) {
+    jlong mem_usage = OSContainer::memory_usage_in_bytes();
+    if (mem_usage > 0) {
+      return mem_usage;
+    }
+  }
+#endif
+  return os::physical_memory() - os::available_memory();
+}
+
+
 bool os::commit_memory(char* addr, size_t bytes, bool executable) {
   assert_nonempty_range(addr, bytes);
   bool res = pd_commit_memory(addr, bytes, executable);
   if (res) {
     MemTracker::record_virtual_memory_commit((address)addr, bytes, CALLER_PC);
+    log_debug(os, map)("Committed " RANGEFMT, RANGEFMTARGS(addr, bytes));
+  } else {
+    log_info(os, map)("Failed to commit " RANGEFMT, RANGEFMTARGS(addr, bytes));
   }
   return res;
 }
@@ -2033,6 +2128,9 @@ bool os::commit_memory(char* addr, size_t size, size_t alignment_hint,
   bool res = os::pd_commit_memory(addr, size, alignment_hint, executable);
   if (res) {
     MemTracker::record_virtual_memory_commit((address)addr, size, CALLER_PC);
+    log_debug(os, map)("Committed " RANGEFMT, RANGEFMTARGS(addr, size));
+  } else {
+    log_info(os, map)("Failed to commit " RANGEFMT, RANGEFMTARGS(addr, size));
   }
   return res;
 }
@@ -2055,14 +2153,21 @@ bool os::uncommit_memory(char* addr, size_t bytes, bool executable) {
   assert_nonempty_range(addr, bytes);
   bool res;
   if (MemTracker::enabled()) {
-    Tracker tkr(Tracker::uncommit);
+    ThreadCritical tc;
     res = pd_uncommit_memory(addr, bytes, executable);
     if (res) {
-      tkr.record((address)addr, bytes);
+      MemTracker::record_virtual_memory_uncommit((address)addr, bytes);
     }
   } else {
     res = pd_uncommit_memory(addr, bytes, executable);
   }
+
+  if (res) {
+    log_debug(os, map)("Uncommitted " RANGEFMT, RANGEFMTARGS(addr, bytes));
+  } else {
+    log_info(os, map)("Failed to uncommit " RANGEFMT, RANGEFMTARGS(addr, bytes));
+  }
+
   return res;
 }
 
@@ -2070,17 +2175,18 @@ bool os::release_memory(char* addr, size_t bytes) {
   assert_nonempty_range(addr, bytes);
   bool res;
   if (MemTracker::enabled()) {
-    // Note: Tracker contains a ThreadCritical.
-    Tracker tkr(Tracker::release);
+    ThreadCritical tc;
     res = pd_release_memory(addr, bytes);
     if (res) {
-      tkr.record((address)addr, bytes);
+      MemTracker::record_virtual_memory_release((address)addr, bytes);
     }
   } else {
     res = pd_release_memory(addr, bytes);
   }
   if (!res) {
-    log_info(os)("os::release_memory failed (" PTR_FORMAT ", " SIZE_FORMAT ")", p2i(addr), bytes);
+    log_info(os, map)("Failed to release " RANGEFMT, RANGEFMTARGS(addr, bytes));
+  } else {
+    log_debug(os, map)("Released " RANGEFMT, RANGEFMTARGS(addr, bytes));
   }
   return res;
 }
@@ -2106,33 +2212,37 @@ void os::pretouch_memory(void* start, void* end, size_t page_size) {
     // We're doing concurrent-safe touch and memory state has page
     // granularity, so we can touch anywhere in a page.  Touch at the
     // beginning of each page to simplify iteration.
-    char* cur = static_cast<char*>(align_down(start, page_size));
+    void* first = align_down(start, page_size);
     void* last = align_down(static_cast<char*>(end) - 1, page_size);
-    assert(cur <= last, "invariant");
-    // Iterate from first page through last (inclusive), being careful to
-    // avoid overflow if the last page abuts the end of the address range.
-    for ( ; true; cur += page_size) {
-      Atomic::add(reinterpret_cast<int*>(cur), 0, memory_order_relaxed);
-      if (cur >= last) break;
+    assert(first <= last, "invariant");
+    const size_t pd_page_size = pd_pretouch_memory(first, last, page_size);
+    if (pd_page_size > 0) {
+      // Iterate from first page through last (inclusive), being careful to
+      // avoid overflow if the last page abuts the end of the address range.
+      last = align_down(static_cast<char*>(end) - 1, pd_page_size);
+      for (char* cur = static_cast<char*>(first); /* break */; cur += pd_page_size) {
+        Atomic::add(reinterpret_cast<int*>(cur), 0, memory_order_relaxed);
+        if (cur >= last) break;
+      }
     }
   }
 }
 
-char* os::map_memory_to_file(size_t bytes, int file_desc) {
+char* os::map_memory_to_file(size_t bytes, int file_desc, MEMFLAGS flag) {
   // Could have called pd_reserve_memory() followed by replace_existing_mapping_with_file_mapping(),
   // but AIX may use SHM in which case its more trouble to detach the segment and remap memory to the file.
   // On all current implementations null is interpreted as any available address.
   char* result = os::map_memory_to_file(nullptr /* addr */, bytes, file_desc);
   if (result != nullptr) {
-    MemTracker::record_virtual_memory_reserve_and_commit(result, bytes, CALLER_PC);
+    MemTracker::record_virtual_memory_reserve_and_commit(result, bytes, CALLER_PC, flag);
   }
   return result;
 }
 
-char* os::attempt_map_memory_to_file_at(char* addr, size_t bytes, int file_desc) {
+char* os::attempt_map_memory_to_file_at(char* addr, size_t bytes, int file_desc, MEMFLAGS flag) {
   char* result = pd_attempt_map_memory_to_file_at(addr, bytes, file_desc);
   if (result != nullptr) {
-    MemTracker::record_virtual_memory_reserve_and_commit((address)result, bytes, CALLER_PC);
+    MemTracker::record_virtual_memory_reserve_and_commit((address)result, bytes, CALLER_PC, flag);
   }
   return result;
 }
@@ -2147,20 +2257,13 @@ char* os::map_memory(int fd, const char* file_name, size_t file_offset,
   return result;
 }
 
-char* os::remap_memory(int fd, const char* file_name, size_t file_offset,
-                             char *addr, size_t bytes, bool read_only,
-                             bool allow_exec) {
-  return pd_remap_memory(fd, file_name, file_offset, addr, bytes,
-                    read_only, allow_exec);
-}
-
 bool os::unmap_memory(char *addr, size_t bytes) {
   bool result;
   if (MemTracker::enabled()) {
-    Tracker tkr(Tracker::release);
+    ThreadCritical tc;
     result = pd_unmap_memory(addr, bytes);
     if (result) {
-      tkr.record((address)addr, bytes);
+      MemTracker::record_virtual_memory_release((address)addr, bytes);
     }
   } else {
     result = pd_unmap_memory(addr, bytes);
@@ -2168,8 +2271,8 @@ bool os::unmap_memory(char *addr, size_t bytes) {
   return result;
 }
 
-void os::free_memory(char *addr, size_t bytes, size_t alignment_hint) {
-  pd_free_memory(addr, bytes, alignment_hint);
+void os::disclaim_memory(char *addr, size_t bytes) {
+  pd_disclaim_memory(addr, bytes);
 }
 
 void os::realign_memory(char *addr, size_t bytes, size_t alignment_hint) {
@@ -2185,6 +2288,9 @@ char* os::reserve_memory_special(size_t size, size_t alignment, size_t page_size
   if (result != nullptr) {
     // The memory is committed
     MemTracker::record_virtual_memory_reserve_and_commit((address)result, size, CALLER_PC);
+    log_debug(os, map)("Reserved and committed " RANGEFMT, RANGEFMTARGS(result, size));
+  } else {
+    log_info(os, map)("Reserve and commit failed (%zu bytes)", size);
   }
 
   return result;
@@ -2193,11 +2299,10 @@ char* os::reserve_memory_special(size_t size, size_t alignment, size_t page_size
 bool os::release_memory_special(char* addr, size_t bytes) {
   bool res;
   if (MemTracker::enabled()) {
-    // Note: Tracker contains a ThreadCritical.
-    Tracker tkr(Tracker::release);
+    ThreadCritical tc;
     res = pd_release_memory_special(addr, bytes);
     if (res) {
-      tkr.record((address)addr, bytes);
+      MemTracker::record_virtual_memory_release((address)addr, bytes);
     }
   } else {
     res = pd_release_memory_special(addr, bytes);

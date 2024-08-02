@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,14 +28,14 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-import jdk.internal.classfile.Attribute;
-import jdk.internal.classfile.AttributedElement;
-import jdk.internal.classfile.ClassfileElement;
-import jdk.internal.classfile.CompoundElement;
+import java.lang.classfile.Attribute;
+import java.lang.classfile.AttributedElement;
+import java.lang.classfile.ClassFileElement;
+import java.lang.classfile.CompoundElement;
 
-public abstract sealed class AbstractUnboundModel<E extends ClassfileElement>
+public abstract sealed class AbstractUnboundModel<E extends ClassFileElement>
         extends AbstractElement
-        implements CompoundElement<E>, AttributedElement
+        implements CompoundElement<E>, AttributedElement, Util.Writable
         permits BufferedCodeBuilder.Model, BufferedFieldBuilder.Model, BufferedMethodBuilder.Model {
     private final List<E> elements;
     private List<Attribute<?>> attributes;
@@ -45,7 +45,7 @@ public abstract sealed class AbstractUnboundModel<E extends ClassfileElement>
     }
 
     @Override
-    public void forEachElement(Consumer<E> consumer) {
+    public void forEach(Consumer<? super E> consumer) {
         elements.forEach(consumer);
     }
 

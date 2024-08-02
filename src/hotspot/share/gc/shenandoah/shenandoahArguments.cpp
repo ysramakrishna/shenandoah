@@ -50,7 +50,6 @@ void ShenandoahArguments::initialize() {
 
   FLAG_SET_DEFAULT(ShenandoahSATBBarrier,            false);
   FLAG_SET_DEFAULT(ShenandoahLoadRefBarrier,         false);
-  FLAG_SET_DEFAULT(ShenandoahIUBarrier,              false);
   FLAG_SET_DEFAULT(ShenandoahCASBarrier,             false);
   FLAG_SET_DEFAULT(ShenandoahCardBarrier,            false);
   FLAG_SET_DEFAULT(ShenandoahCloneBarrier,           false);
@@ -123,6 +122,16 @@ void ShenandoahArguments::initialize() {
     }
   }
 
+  // Disable support for dynamic number of GC threads. We do not let the runtime
+  // heuristics to misjudge how many threads we need during the heavy concurrent phase
+  // or a GC pause.
+  if (UseDynamicNumberOfGCThreads) {
+    if (FLAG_IS_CMDLINE(UseDynamicNumberOfGCThreads)) {
+      warning("Shenandoah does not support UseDynamicNumberOfGCThreads, disabling");
+    }
+    FLAG_SET_DEFAULT(UseDynamicNumberOfGCThreads, false);
+  }
+
   if (ShenandoahRegionSampling && FLAG_IS_DEFAULT(PerfDataMemorySize)) {
     // When sampling is enabled, max out the PerfData memory to get more
     // Shenandoah data in, including Matrix.
@@ -142,7 +151,6 @@ void ShenandoahArguments::initialize() {
   if (ShenandoahVerifyOptoBarriers &&
           (!FLAG_IS_DEFAULT(ShenandoahSATBBarrier)            ||
            !FLAG_IS_DEFAULT(ShenandoahLoadRefBarrier)         ||
-           !FLAG_IS_DEFAULT(ShenandoahIUBarrier)              ||
            !FLAG_IS_DEFAULT(ShenandoahCASBarrier)             ||
            !FLAG_IS_DEFAULT(ShenandoahCloneBarrier)
           )) {
@@ -153,10 +161,6 @@ void ShenandoahArguments::initialize() {
   guarantee(!ShenandoahVerifyOptoBarriers, "Should be disabled");
 #endif // ASSERT
 #endif // COMPILER2
-
-  if (ShenandoahIUBarrier) {
-    assert(strcmp(ShenandoahGCMode, "generational"), "Generational mode does not support IU barrier");
-  }
 
   // Record more information about previous cycles for improved debugging pleasure
   if (FLAG_IS_DEFAULT(LogEventsBufferEntries)) {
@@ -207,8 +211,10 @@ void ShenandoahArguments::initialize_alignments() {
 }
 
 CollectedHeap* ShenandoahArguments::create_heap() {
-  if (strcmp(ShenandoahGCMode, "generational") == 0) {
+  if (strcmp(ShenandoahGCMode, "generational") != 0) {
+    // Not generational
+    return new ShenandoahHeap(new ShenandoahCollectorPolicy());
+  } else {
     return new ShenandoahGenerationalHeap(new ShenandoahCollectorPolicy());
   }
-  return new ShenandoahHeap(new ShenandoahCollectorPolicy());
 }

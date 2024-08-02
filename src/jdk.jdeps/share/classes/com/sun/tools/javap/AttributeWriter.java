@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,12 +29,12 @@ import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
-import jdk.internal.classfile.*;
+import java.lang.classfile.*;
 import java.lang.reflect.AccessFlag;
-import jdk.internal.classfile.constantpool.*;
-import jdk.internal.classfile.attribute.*;
-import static jdk.internal.classfile.Classfile.*;
-import static jdk.internal.classfile.attribute.StackMapFrameInfo.*;
+import java.lang.classfile.constantpool.*;
+import java.lang.classfile.attribute.*;
+import static java.lang.classfile.ClassFile.*;
+import static java.lang.classfile.attribute.StackMapFrameInfo.*;
 
 /*
  *  A writer for writing Attributes as text.
@@ -208,7 +208,7 @@ public class AttributeWriter extends BasicWriter {
                             indent(+1);
                             first = false;
                         }
-                        for (var flag : info.flags()) {
+                        for (var flag : maskToAccessFlagsReportUnknown(access_flags, AccessFlag.Location.INNER_CLASS)) {
                             if (flag.sourceModifier() && (flag != AccessFlag.ABSTRACT
                                     || !info.has(AccessFlag.INTERFACE))) {
                                 print(Modifier.toString(flag.mask()) + " ");
@@ -478,7 +478,7 @@ public class AttributeWriter extends BasicWriter {
                 println("Record:");
                 indent(+1);
                 for (var componentInfo : attr.components()) {
-                    var sigAttr = componentInfo.findAttribute(Attributes.SIGNATURE);
+                    var sigAttr = componentInfo.findAttribute(Attributes.signature());
                     print(getJavaName(
                             new ClassWriter.SignaturePrinter(options.verbose).print(
                                     sigAttr.map(SignatureAttribute::asTypeSignature)

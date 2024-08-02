@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
 
 /*
  * @test
- * @summary Testing Classfile annotations.
+ * @summary Testing ClassFile annotations.
  * @run junit AnnotationTest
  */
 import java.lang.constant.ClassDesc;
@@ -36,9 +36,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import jdk.internal.classfile.attribute.RuntimeVisibleAnnotationsAttribute;
-import jdk.internal.classfile.*;
-import jdk.internal.classfile.constantpool.ConstantPoolBuilder;
+import java.lang.classfile.attribute.RuntimeVisibleAnnotationsAttribute;
+import java.lang.classfile.*;
+import java.lang.classfile.constantpool.ConstantPoolBuilder;
 import org.junit.jupiter.api.Test;
 
 import static java.util.stream.Collectors.toList;
@@ -125,7 +125,7 @@ class AnnotationTest {
 
     @Test
     void testAnnos() {
-        var cc = Classfile.of();
+        var cc = ClassFile.of();
         byte[] bytes = cc.build(ClassDesc.of("Foo"), cb -> {
             ((DirectClassBuilder) cb).writeAttribute(buildAnnotationsWithCPB(cb.constantPool()));
             cb.withMethod("foo", MethodTypeDesc.of(CD_void), 0, mb -> mb.with(buildAnnotationsWithCPB(mb.constantPool())));
@@ -171,7 +171,7 @@ class AnnotationTest {
 
     @Test
     void testAnnosNoCPB() {
-        var cc = Classfile.of();
+        var cc = ClassFile.of();
         byte[] bytes = cc.build(ClassDesc.of("Foo"), cb -> {
             ((DirectClassBuilder) cb).writeAttribute(buildAnnotations());
             cb.withMethod("foo", MethodTypeDesc.of(CD_void), 0, mb -> mb.with(buildAnnotations()));
@@ -206,5 +206,28 @@ class AnnotationTest {
         assertAnno(annos.get(0), "LAnno;", true);
         assertAnno(mannos.get(0), "LAnno;", true);
         assertAnno(fannos.get(0), "LAnno;", true);
+    }
+
+    @Test
+    void testEquality() {
+        assertEquals(Annotation.of(CD_Object), Annotation.of(ClassDesc.of("java.lang.Object")));
+        assertNotEquals(Annotation.of(CD_Object), Annotation.of(CD_String));
+        assertEquals(Annotation.of(CD_Object, AnnotationElement.of("fly", AnnotationValue.ofInt(5))),
+                Annotation.of(CD_Object, AnnotationElement.ofInt("fly", 5)));
+        assertEquals(AnnotationElement.ofFloat("one", 1.2F),
+                AnnotationElement.ofFloat("one", 1.2F));
+        assertEquals(AnnotationElement.ofFloat("one", 1.2F),
+                AnnotationElement.of("one", AnnotationValue.ofFloat(1.2F)));
+        assertNotEquals(AnnotationElement.ofFloat("one", 1.2F),
+                AnnotationElement.ofFloat("two", 1.2F));
+        assertNotEquals(AnnotationElement.ofFloat("one", 1.2F),
+                AnnotationElement.ofFloat("one", 2.1F));
+        assertNotEquals(AnnotationElement.ofFloat("one", 1.2F),
+                AnnotationElement.ofDouble("one", 1.2F));
+        assertEquals(AnnotationValue.ofInt(23), AnnotationValue.ofInt(23));
+        assertNotEquals(AnnotationValue.ofInt(23), AnnotationValue.ofInt(42));
+        assertNotEquals(AnnotationValue.ofInt(23), AnnotationValue.ofLong(23));
+        assertEquals(AnnotationValue.ofAnnotation(Annotation.of(CD_Object)),
+                AnnotationValue.ofAnnotation(Annotation.of(Object.class.describeConstable().orElseThrow())));
     }
 }

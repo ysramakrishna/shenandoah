@@ -887,6 +887,9 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
         return (status & (DONE | ABNORMAL)) == DONE;
     }
 
+    /**
+     * @since 19
+     */
     @Override
     public State state() {
         int s = status;
@@ -896,6 +899,9 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
             State.CANCELLED;
     }
 
+    /**
+     * @since 19
+     */
     @Override
     public V resultNow() {
         int s = status;
@@ -910,6 +916,9 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
         return getRawResult();
     }
 
+    /**
+     * @since 19
+     */
     @Override
     public Throwable exceptionNow() {
         Throwable ex;
@@ -1624,7 +1633,7 @@ public abstract class ForkJoinTask<V> implements Future<V>, Serializable {
      * been cancelled on entry and might not otherwise be cancelled by
      * others.
      */
-    static abstract class InterruptibleTask<T> extends ForkJoinTask<T>
+    abstract static class InterruptibleTask<T> extends ForkJoinTask<T>
         implements RunnableFuture<T> {
         transient volatile Thread runner;
         abstract T compute() throws Exception;

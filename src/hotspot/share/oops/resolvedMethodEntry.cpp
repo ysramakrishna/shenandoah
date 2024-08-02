@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2023, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "cds/archiveBuilder.hpp"
 #include "oops/method.hpp"
 #include "oops/resolvedMethodEntry.hpp"
 
@@ -37,11 +38,11 @@ bool ResolvedMethodEntry::check_no_old_or_obsolete_entry() {
 }
 
 void ResolvedMethodEntry::reset_entry() {
-  if (has_resolved_ref_index()) {
+  if (has_resolved_references_index()) {
     u2 saved_resolved_references_index = _entry_specific._resolved_references_index;
     u2 saved_cpool_index = _cpool_index;
     memset(this, 0, sizeof(*this));
-    _entry_specific._resolved_references_index = saved_resolved_references_index;
+    set_resolved_references_index(saved_resolved_references_index);
     _cpool_index = saved_cpool_index;
   } else {
     u2 saved_cpool_index = _cpool_index;
@@ -50,9 +51,22 @@ void ResolvedMethodEntry::reset_entry() {
   }
 }
 
+#if INCLUDE_CDS
 void ResolvedMethodEntry::remove_unshareable_info() {
   reset_entry();
 }
+
+void ResolvedMethodEntry::mark_and_relocate(ConstantPool* src_cp) {
+  if (_method == nullptr) {
+    assert(bytecode2() == Bytecodes::_invokevirtual, "");
+  } else {
+    ArchiveBuilder::current()->mark_and_relocate_to_buffered_addr(&_method);
+  }
+  if (bytecode1() == Bytecodes::_invokeinterface) {
+    ArchiveBuilder::current()->mark_and_relocate_to_buffered_addr(&_entry_specific._interface_klass);
+  }
+}
+#endif
 
 void ResolvedMethodEntry::print_on(outputStream* st) const {
   st->print_cr("Method Entry:");
@@ -74,7 +88,13 @@ void ResolvedMethodEntry::print_on(outputStream* st) const {
     st->print_cr(" - Resolved References Index: none");
   }
   if (bytecode2() == Bytecodes::_invokevirtual) {
+#ifdef ASSERT
+    if (_has_table_index) {
+      st->print_cr(" - Table Index: %d", table_index());
+    }
+#else
     st->print_cr(" - Table Index: %d", table_index());
+#endif
   } else {
     st->print_cr(" - Table Index: none");
   }

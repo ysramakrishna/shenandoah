@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2020, 2023 SAP SE. All rights reserved.
- * Copyright (c) 2020, 2023, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, 2024 SAP SE. All rights reserved.
+ * Copyright (c) 2020, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,6 +51,9 @@ RuntimeStub* DowncallLinker::make_downcall_stub(BasicType* signature,
   int code_size = native_invoker_code_base_size + (num_args * native_invoker_size_per_arg);
   int locs_size = 1; // must be non-zero
   CodeBuffer code("nep_invoker_blob", code_size, locs_size);
+  if (code.blob() == nullptr) {
+    return nullptr;
+  }
   StubGenerator g(&code, signature, num_args, ret_bt, abi,
                   input_registers, output_registers,
                   needs_return_buffer, captured_state_mask,
@@ -58,12 +61,19 @@ RuntimeStub* DowncallLinker::make_downcall_stub(BasicType* signature,
   g.generate();
   code.log_section_sizes("nep_invoker_blob");
 
+  bool caller_must_gc_arguments = false;
+  bool alloc_fail_is_fatal = false;
   RuntimeStub* stub =
     RuntimeStub::new_runtime_stub("nep_invoker_blob",
                                   &code,
                                   g.frame_complete(),
                                   g.framesize(),
-                                  g.oop_maps(), false);
+                                  g.oop_maps(),
+                                  caller_must_gc_arguments,
+                                  alloc_fail_is_fatal);
+  if (stub == nullptr) {
+    return nullptr;
+  }
 
 #ifndef PRODUCT
   LogTarget(Trace, foreign, downcall) lt;
@@ -177,7 +187,7 @@ void DowncallLinker::StubGenerator::generate() {
   _oop_maps  = _needs_transition ? new OopMapSet() : nullptr;
   address start = __ pc();
 
-  __ save_LR_CR(tmp); // Save in old frame.
+  __ save_LR(tmp); // Save in old frame.
   __ mr(callerSP, R1_SP); // preset (used to access caller frame argument slots)
   __ push_frame(allocated_frame_size, tmp);
 
@@ -292,7 +302,7 @@ void DowncallLinker::StubGenerator::generate() {
   }
 
   __ pop_frame();
-  __ restore_LR_CR(tmp);
+  __ restore_LR(tmp);
   __ blr();
 
   //////////////////////////////////////////////////////////////////////////////

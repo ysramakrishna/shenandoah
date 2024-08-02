@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2022, 2024, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,20 +28,19 @@ package jdk.internal.classfile.impl;
 import java.lang.constant.MethodTypeDesc;
 import java.util.function.Consumer;
 
-import jdk.internal.classfile.BufWriter;
-import jdk.internal.classfile.Classfile;
-import jdk.internal.classfile.CodeBuilder;
-import jdk.internal.classfile.CodeModel;
-import jdk.internal.classfile.CodeTransform;
-import jdk.internal.classfile.MethodBuilder;
-import jdk.internal.classfile.MethodElement;
-import jdk.internal.classfile.MethodModel;
-import jdk.internal.classfile.WritableElement;
-import jdk.internal.classfile.constantpool.Utf8Entry;
+import java.lang.classfile.ClassFile;
+import java.lang.classfile.CodeBuilder;
+import java.lang.classfile.CodeModel;
+import java.lang.classfile.CodeTransform;
+import java.lang.classfile.CustomAttribute;
+import java.lang.classfile.MethodBuilder;
+import java.lang.classfile.MethodElement;
+import java.lang.classfile.MethodModel;
+import java.lang.classfile.constantpool.Utf8Entry;
 
 public final class DirectMethodBuilder
         extends AbstractDirectBuilder<MethodModel>
-        implements TerminalMethodBuilder, WritableElement<MethodModel>, MethodInfo {
+        implements TerminalMethodBuilder, Util.Writable {
 
     final Utf8Entry name;
     final Utf8Entry desc;
@@ -50,7 +49,7 @@ public final class DirectMethodBuilder
     MethodTypeDesc mDesc;
 
     public DirectMethodBuilder(SplitConstantPool constantPool,
-                               ClassfileImpl context,
+                               ClassFileImpl context,
                                Utf8Entry nameInfo,
                                Utf8Entry typeInfo,
                                int flags,
@@ -63,8 +62,8 @@ public final class DirectMethodBuilder
     }
 
     void setFlags(int flags) {
-        boolean wasStatic = (this.flags & Classfile.ACC_STATIC) != 0;
-        boolean isStatic = (flags & Classfile.ACC_STATIC) != 0;
+        boolean wasStatic = (this.flags & ClassFile.ACC_STATIC) != 0;
+        boolean isStatic = (flags & ClassFile.ACC_STATIC) != 0;
         if (wasStatic != isStatic)
             throw new IllegalArgumentException("Cannot change ACC_STATIC flag of method");
         this.flags = flags;
@@ -111,7 +110,11 @@ public final class DirectMethodBuilder
 
     @Override
     public MethodBuilder with(MethodElement element) {
-        ((AbstractElement) element).writeTo(this);
+        if (element instanceof AbstractElement ae) {
+            ae.writeTo(this);
+        } else {
+            writeAttribute((CustomAttribute<?>) element);
+        }
         return this;
     }
 
@@ -143,8 +146,7 @@ public final class DirectMethodBuilder
     }
 
     @Override
-    public void writeTo(BufWriter b) {
-        BufWriterImpl buf = (BufWriterImpl) b;
+    public void writeTo(BufWriterImpl buf) {
         buf.writeU2(flags);
         buf.writeIndex(name);
         buf.writeIndex(desc);

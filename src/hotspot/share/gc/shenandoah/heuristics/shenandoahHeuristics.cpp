@@ -54,11 +54,6 @@ ShenandoahHeuristics::ShenandoahHeuristics(ShenandoahSpaceInfo* space_info) :
   _gc_cycle_time_history(new TruncatedSeq(Moving_Average_Samples, ShenandoahAdaptiveDecayFactor)),
   _metaspace_oom()
 {
-  // No unloading during concurrent mark? Communicate that to heuristics
-  if (!ClassUnloadingWithConcurrentMark) {
-    FLAG_SET_DEFAULT(ShenandoahUnloadClassesFrequency, 0);
-  }
-
   size_t num_regions = ShenandoahHeap::heap()->num_regions();
   assert(num_regions > 0, "Sanity");
 
@@ -225,14 +220,11 @@ void ShenandoahHeuristics::adjust_penalty(intx step) {
          "In range after adjustment: " INTX_FORMAT, _gc_time_penalties);
 }
 
-void ShenandoahHeuristics::record_success_concurrent(bool abbreviated) {
+void ShenandoahHeuristics::record_success_concurrent() {
+  _gc_cycle_time_history->add(elapsed_cycle_time());
   _gc_times_learned++;
 
   adjust_penalty(Concurrent_Adjust);
-
-  if (_gc_times_learned <= ShenandoahLearningSteps || !(abbreviated && ShenandoahAdaptiveIgnoreShortCycles)) {
-    _gc_cycle_time_history->add(elapsed_cycle_time());
-  }
 }
 
 void ShenandoahHeuristics::record_success_degenerated() {
@@ -254,27 +246,13 @@ void ShenandoahHeuristics::record_requested_gc() {
 }
 
 bool ShenandoahHeuristics::can_unload_classes() {
-  if (!ClassUnloading) return false;
-  return true;
-}
-
-bool ShenandoahHeuristics::can_unload_classes_normal() {
-  if (!can_unload_classes()) return false;
-  if (has_metaspace_oom()) return true;
-  if (!ClassUnloadingWithConcurrentMark) return false;
-  if (ShenandoahUnloadClassesFrequency == 0) return false;
-  return true;
+  return ClassUnloading;
 }
 
 bool ShenandoahHeuristics::should_unload_classes() {
-  if (!can_unload_classes_normal()) return false;
+  if (!can_unload_classes()) return false;
   if (has_metaspace_oom()) return true;
-  size_t cycle = ShenandoahHeap::heap()->shenandoah_policy()->cycle_counter();
-  // Unload classes every Nth GC cycle.
-  // This should not happen in the same cycle as process_references to amortize costs.
-  // Offsetting by one is enough to break the rendezvous when periods are equal.
-  // When periods are not equal, offsetting by one is just as good as any other guess.
-  return (cycle + 1) % ShenandoahUnloadClassesFrequency == 0;
+  return ClassUnloadingWithConcurrentMark;
 }
 
 void ShenandoahHeuristics::initialize() {

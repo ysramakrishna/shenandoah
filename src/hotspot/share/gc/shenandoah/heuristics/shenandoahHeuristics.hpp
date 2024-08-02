@@ -27,10 +27,10 @@
 #define SHARE_GC_SHENANDOAH_HEURISTICS_SHENANDOAHHEURISTICS_HPP
 
 #include "gc/shenandoah/heuristics/shenandoahSpaceInfo.hpp"
-#include "gc/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc/shenandoah/shenandoahSharedVariables.hpp"
 #include "memory/allocation.hpp"
 #include "runtime/globals_extension.hpp"
+#include "utilities/numberSeq.hpp"
 
 #define SHENANDOAH_ERGO_DISABLE_FLAG(name)                                  \
   do {                                                                      \
@@ -141,7 +141,7 @@ public:
 
   virtual bool should_degenerate_cycle();
 
-  virtual void record_success_concurrent(bool abbreviated);
+  virtual void record_success_concurrent();
 
   virtual void record_success_degenerated();
 
@@ -154,7 +154,9 @@ public:
   virtual void choose_collection_set(ShenandoahCollectionSet* collection_set);
 
   virtual bool can_unload_classes();
-  virtual bool can_unload_classes_normal();
+
+  // This indicates whether or not the current cycle should unload classes.
+  // It does NOT indicate that a cycle should be started.
   virtual bool should_unload_classes();
 
   virtual const char* name() = 0;

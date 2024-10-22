@@ -29,18 +29,18 @@ package jdk.jfr.event.gc.detailed;
  * @test id=default
  * @key randomness
  * @requires vm.hasJFR
- * @requires vm.gc.Shenandoah
+ * @requires vm.gc.Shenandoah & vm.opt.ShenandoahGCMode != "generational"
  * @library /test/lib /test/jdk
- * @run main/othervm -XX:+UseShenandoahGC -Xmx256m jdk.jfr.event.gc.detailed.TestStressBigAllocationGCEventsWithShenandoah 1048576
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx1g jdk.jfr.event.gc.detailed.TestStressBigAllocationGCEventsWithShenandoah 1048576
  */
 
  /**
   * @test id=generational
   * @key randomness
   * @requires vm.hasJFR
-  * @requires vm.gc.Shenandoah
+  * @requires vm.gc.Shenandoah & vm.opt.ShenandoahGCMode == "generational"
   * @library /test/lib /test/jdk
-  * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCMode=generational -Xmx256m jdk.jfr.event.gc.detailed.TestStressBigAllocationGCEventsWithShenandoah 1048576
+  * @run main/othervm -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC -XX:ShenandoahGCMode=generational -Xmx1g jdk.jfr.event.gc.detailed.TestStressBigAllocationGCEventsWithShenandoah 1048576
   */
 public class TestStressBigAllocationGCEventsWithShenandoah {
 

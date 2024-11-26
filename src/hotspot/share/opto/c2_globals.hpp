@@ -272,7 +272,7 @@
   product(bool, ReduceFieldZeroing, true,                                   \
           "When initializing fields, try to avoid needless zeroing")        \
                                                                             \
-  product(bool, ReduceInitialCardMarks, true,                               \
+  product(bool, ReduceInitialCardMarks, false,                               \
           "When initializing fields, try to avoid needless card marks")     \
                                                                             \
   product(bool, ReduceBulkZeroing, true,                                    \
